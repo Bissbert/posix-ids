@@ -1,6 +1,35 @@
 # POSIX Linux Intrusion Detection System
 
+[![GitHub](https://img.shields.io/badge/GitHub-posix--ids-blue)](https://github.com/Bissbert/posix-ids)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![POSIX](https://img.shields.io/badge/POSIX-Compliant-brightgreen)](docs/implementation-plan.md)
+
 A lightweight, POSIX-compliant intrusion detection system for Linux servers with minimal dependencies and Splunk integration.
+
+## Installation Options
+
+### Option 1: Manual Installation
+```bash
+# Clone the repository
+git clone https://github.com/Bissbert/posix-ids.git
+cd posix-ids
+
+# Run setup
+sudo ./bin/setup.sh
+```
+
+### Option 2: Ansible Deployment (Recommended for multiple servers)
+```bash
+# Clone the repository
+git clone https://github.com/Bissbert/posix-ids.git
+cd posix-ids
+
+# Install Ansible requirements
+ansible-galaxy collection install -r collections/requirements.yml
+
+# Deploy to all servers in inventory
+ansible-playbook -i inventory/production playbooks/site.yml
+```
 
 ## Quick Start
 
@@ -191,12 +220,34 @@ Tested on:
 - BusyBox systems
 - Minimal containers
 
+## Ansible Deployment
+
+Deploy to multiple servers with one command:
+
+```bash
+# Deploy to staging
+ansible-playbook -i inventory/staging playbooks/site.yml
+
+# Deploy to specific hosts
+ansible-playbook -i inventory/production playbooks/deploy.yml --limit web-servers
+
+# Update existing installations
+ansible-playbook -i inventory/production playbooks/update.yml
+
+# Generate new baselines
+ansible-playbook -i inventory/production playbooks/baseline.yml
+```
+
+See [README_ANSIBLE.md](README_ANSIBLE.md) for detailed Ansible documentation.
+
 ## Support
 
 - 📖 [Detailed Installation](docs/INSTALLATION.md)
 - 📋 [Implementation Plan](docs/implementation-plan.md)
+- 🚀 [Ansible Deployment Guide](README_ANSIBLE.md)
 - 🧪 Run `tests/test.sh` to validate setup
 - 📊 Check `/var/log/ids/` for logs
+- 🐛 [Report Issues](https://github.com/Bissbert/posix-ids/issues)
 
 ## License
 
