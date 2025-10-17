@@ -1,0 +1,262 @@
+<dashboard version="1.1">
+  <label>Linux IDS Security Dashboard</label>
+  <description>Comprehensive intrusion detection monitoring for Linux servers</description>
+
+  <row>
+    <panel>
+      <title>Security Alert Summary (Last 24 Hours)</title>
+      <single>
+        <search>
+          <query>index=security sourcetype=linux_ids severity=critical earliest=-24h | stats count</query>
+          <earliest>-24h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="drilldown">all</option>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="rangeColors">["0x53A051","0xF8BE34","0xDC4E41"]</option>
+        <option name="rangeValues">[0,5]</option>
+        <option name="underLabel">Critical Alerts</option>
+      </single>
+    </panel>
+
+    <panel>
+      <title>High Severity Events</title>
+      <single>
+        <search>
+          <query>index=security sourcetype=linux_ids severity=high earliest=-24h | stats count</query>
+          <earliest>-24h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="drilldown">all</option>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="rangeColors">["0x53A051","0xF8BE34","0xDC4E41"]</option>
+        <option name="rangeValues">[0,20]</option>
+        <option name="underLabel">High Alerts</option>
+      </single>
+    </panel>
+
+    <panel>
+      <title>Affected Hosts</title>
+      <single>
+        <search>
+          <query>index=security sourcetype=linux_ids earliest=-24h | stats dc(host)</query>
+          <earliest>-24h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="drilldown">all</option>
+        <option name="underLabel">Unique Hosts</option>
+      </single>
+    </panel>
+
+    <panel>
+      <title>Threat Score</title>
+      <single>
+        <search>
+          <query>index=security sourcetype=linux_ids earliest=-24h
+          | eval score=case(severity="critical",100, severity="high",75, severity="medium",50, severity="low",25, 1=1, 0)
+          | stats avg(score) as avg_score
+          | eval avg_score=round(avg_score,1)</query>
+          <earliest>-24h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="rangeColors">["0x53A051","0xF8BE34","0xDC4E41"]</option>
+        <option name="rangeValues">[0,50]</option>
+        <option name="underLabel">Average Risk Score</option>
+      </single>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Security Events Timeline</title>
+      <chart>
+        <search>
+          <query>index=security sourcetype=linux_ids
+          | timechart span=1h count by severity
+          | fillnull value=0</query>
+          <earliest>-24h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.axisTitleX.text">Time</option>
+        <option name="charting.axisTitleY.text">Event Count</option>
+        <option name="charting.legend.placement">bottom</option>
+        <option name="charting.seriesColors">[0xDC4E41,0xF8BE34,0xF1813F,0x53A051]</option>
+      </chart>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Top Threat Categories</title>
+      <chart>
+        <search>
+          <query>index=security sourcetype=linux_ids earliest=-24h
+          | stats count by event_type
+          | sort -count
+          | head 10</query>
+          <earliest>-24h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="charting.chart">pie</option>
+        <option name="charting.legend.placement">right</option>
+      </chart>
+    </panel>
+
+    <panel>
+      <title>Attack Sources (Network Threats)</title>
+      <chart>
+        <search>
+          <query>index=security sourcetype=linux_ids event_type=network_threat earliest=-24h
+          | rex field=details "\"source_ip\":\"(?&lt;src_ip&gt;[^\"]+)\""
+          | stats count by src_ip
+          | sort -count
+          | head 10</query>
+          <earliest>-24h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="charting.chart">bar</option>
+        <option name="charting.axisTitleX.text">Source IP</option>
+        <option name="charting.axisTitleY.text">Attack Count</option>
+      </chart>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Authentication Anomalies</title>
+      <table>
+        <search>
+          <query>index=security sourcetype=linux_ids event_type=authentication earliest=-24h
+          | rex field=details "\"username\":\"(?&lt;user&gt;[^\"]+)\""
+          | rex field=details "\"source_ip\":\"(?&lt;src&gt;[^\"]+)\""
+          | table _time, host, user, src, description, severity
+          | sort -_time</query>
+          <earliest>-24h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">cell</option>
+        <option name="wrap">false</option>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>File Integrity Violations</title>
+      <table>
+        <search>
+          <query>index=security sourcetype=linux_ids event_type=file_integrity earliest=-24h
+          | rex field=details "\"file_path\":\"(?&lt;file&gt;[^\"]+)\""
+          | rex field=details "\"action\":\"(?&lt;action&gt;[^\"]+)\""
+          | table _time, host, file, action, severity
+          | sort -_time</query>
+          <earliest>-24h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">cell</option>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Suspicious Processes</title>
+      <table>
+        <search>
+          <query>index=security sourcetype=linux_ids event_type=process earliest=-24h
+          | rex field=details "\"name\":\"(?&lt;proc_name&gt;[^\"]+)\""
+          | rex field=details "\"pid\":\"?(?&lt;pid&gt;[0-9]+)\"?"
+          | rex field=details "\"user\":\"(?&lt;user&gt;[^\"]+)\""
+          | table _time, host, proc_name, pid, user, description
+          | sort -_time</query>
+          <earliest>-24h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">cell</option>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Resource Usage Alerts</title>
+      <chart>
+        <search>
+          <query>index=security sourcetype=linux_ids event_type=resource earliest=-24h
+          | rex field=details "\"(cpu|memory|disk)_percent\":(?&lt;usage&gt;[0-9]+)"
+          | timechart span=30m max(usage) as max_usage avg(usage) as avg_usage</query>
+          <earliest>-24h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">Usage %</option>
+        <option name="charting.chart.nullValueMode">connect</option>
+        <option name="charting.chart.showDataLabels">none</option>
+      </chart>
+    </panel>
+
+    <panel>
+      <title>Network Traffic Anomalies</title>
+      <chart>
+        <search>
+          <query>index=security sourcetype=linux_ids threat_category=c2_communication OR threat_category=port_scan earliest=-24h
+          | timechart span=1h count by threat_category</query>
+          <earliest>-24h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="charting.chart">area</option>
+        <option name="charting.chart.nullValueMode">zero</option>
+        <option name="charting.chart.stackMode">stacked</option>
+      </chart>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Critical Events - Real-time</title>
+      <table>
+        <search>
+          <query>index=security sourcetype=linux_ids severity=critical
+          | table _time, host, event_type, description, details
+          | sort -_time</query>
+          <earliest>rt-5m</earliest>
+          <latest>rt</latest>
+          <refresh>30s</refresh>
+        </search>
+        <option name="count">20</option>
+        <option name="drilldown">cell</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Security Score by Host</title>
+      <table>
+        <search>
+          <query>index=security sourcetype=linux_ids earliest=-24h
+          | eval score=case(severity="critical",100, severity="high",75, severity="medium",50, severity="low",25, 1=1, 0)
+          | stats sum(score) as total_score, count as event_count, values(event_type) as threat_types by host
+          | eval risk_level=case(total_score>500,"CRITICAL", total_score>200,"HIGH", total_score>50,"MEDIUM", 1=1, "LOW")
+          | sort -total_score</query>
+          <earliest>-24h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="count">20</option>
+        <option name="drilldown">cell</option>
+      </table>
+    </panel>
+  </row>
+
+</dashboard>

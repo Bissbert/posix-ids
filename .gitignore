@@ -1,0 +1,71 @@
+# System files
+.DS_Store
+*.swp
+*.swo
+*~
+.#*
+
+# Logs and runtime data
+/var/log/ids/
+*.log
+*.json
+*.pid
+
+# Baseline and state files
+/var/lib/ids/
+baseline.txt
+*.baseline
+*.state
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.orig
+
+# Config overrides (keep templates)
+config/ids.conf.local
+config/custom/
+
+# Test outputs
+tests/output/
+tests/results/
+tests/*.log
+
+# Ansible files
+*.retry
+ansible/*.retry
+inventory/hosts.local
+group_vars/*/vault.yml
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-*
+
+# Python cache (for any helper scripts)
+__pycache__/
+*.pyc
+*.pyo
+
+# Documentation build
+docs/_build/
+docs/.doctrees/
+
+# Coverage reports
+coverage/
+*.coverage
+.coverage.*
+
+# OS specific
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Secrets and credentials
+*.key
+*.pem
+*.crt
+*.p12
+secrets/
+credentials/
