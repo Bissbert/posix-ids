@@ -1,0 +1,50 @@
+---
+# Configure systemd service
+- name: Deploy systemd service unit
+  ansible.builtin.template:
+    src: ids.service.j2
+    dest: /etc/systemd/system/ids.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart ids
+  tags: [service, systemd]
+
+- name: Deploy systemd timer for baseline updates
+  ansible.builtin.template:
+    src: ids-baseline.timer.j2
+    dest: /etc/systemd/system/ids-baseline.timer
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload systemd
+  when: ids_baseline.auto_update | default(false)
+  tags: [service, systemd, baseline]
+
+- name: Deploy systemd service for baseline updates
+  ansible.builtin.template:
+    src: ids-baseline.service.j2
+    dest: /etc/systemd/system/ids-baseline.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload systemd
+  when: ids_baseline.auto_update | default(false)
+  tags: [service, systemd, baseline]
+
+- name: Enable IDS service
+  ansible.builtin.systemd:
+    name: ids.service
+    enabled: "{{ ids_service_enabled }}"
+    daemon_reload: yes
+  tags: [service, systemd]
+
+- name: Enable baseline timer
+  ansible.builtin.systemd:
+    name: ids-baseline.timer
+    enabled: yes
+    state: started
+  when: ids_baseline.auto_update | default(false)
+  tags: [service, systemd, baseline]

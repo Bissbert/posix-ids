@@ -1,0 +1,168 @@
+---
+# Verify IDS installation and health
+- name: Check IDS installation and status
+  hosts: "{{ target_hosts | default('ids_servers') }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    detailed_check: true
+    performance_check: true
+    security_check: true
+
+  tasks:
+    - name: Check IDS installation
+      block:
+        - name: Verify IDS directories exist
+          ansible.builtin.stat:
+            path: "{{ item }}"
+          register: dir_check
+          loop:
+            - "{{ ids_base_path }}"
+            - "{{ ids_config_path }}"
+            - "{{ ids_log_path }}"
+            - /var/lib/ids
+
+        - name: Display directory status
+          ansible.builtin.debug:
+            msg: "{{ item.item }}: {{ 'EXISTS' if item.stat.exists else 'MISSING' }}"
+          loop: "{{ dir_check.results }}"
+      tags: [install]
+
+    - name: Check IDS service status
+      block:
+        - name: Check systemd service
+          ansible.builtin.systemd:
+            name: ids.service
+          register: service_status
+          when: ids_service_type == "systemd"
+          ignore_errors: true
+
+        - name: Check cron jobs
+          ansible.builtin.shell: crontab -u {{ ids_user }} -l | grep IDS
+          register: cron_status
+          when: ids_service_type == "cron"
+          changed_when: false
+          failed_when: false
+
+        - name: Check running processes
+          ansible.builtin.shell: ps aux | grep -E "monitor.sh|ids-wrapper" | grep -v grep
+          register: process_status
+          changed_when: false
+          failed_when: false
+
+        - name: Display service status
+          ansible.builtin.debug:
+            msg:
+              - "Service Type: {{ ids_service_type }}"
+              - "Service Status: {{ service_status.status.ActiveState | default('N/A') }}"
+              - "Running Processes: {{ process_status.stdout_lines | length }}"
+      tags: [service]
+
+    - name: Configuration check
+      block:
+        - name: Validate configuration files
+          ansible.builtin.stat:
+            path: "{{ ids_config_path }}/{{ item }}"
+          register: config_check
+          loop:
+            - ids.conf
+            - thresholds.conf
+            - alerts.conf
+
+        - name: Check configuration syntax
+          ansible.builtin.shell: |
+            sh -n {{ ids_config_path }}/ids.conf
+          register: config_syntax
+          changed_when: false
+          failed_when: config_syntax.rc != 0
+
+        - name: Display configuration status
+          ansible.builtin.debug:
+            msg: "Configuration files are valid"
+          when: config_syntax.rc == 0
+      tags: [config]
+
+    - name: Performance check
+      block:
+        - name: Check disk usage
+          ansible.builtin.shell: |
+            df -h {{ ids_log_path }} | tail -1 | awk '{print "Usage: " $5 " Available: " $4}'
+          register: disk_usage
+          changed_when: false
+
+        - name: Check log file sizes
+          ansible.builtin.shell: |
+            du -sh {{ ids_log_path }}/*.log 2>/dev/null | head -5
+          register: log_sizes
+          changed_when: false
+          failed_when: false
+
+        - name: Check memory usage
+          ansible.builtin.shell: |
+            ps aux | grep -E "monitor.sh|ids" | grep -v grep | awk '{sum+=$6} END {print "IDS Memory Usage: " sum/1024 " MB"}'
+          register: memory_usage
+          changed_when: false
+          failed_when: false
+
+        - name: Display performance metrics
+          ansible.builtin.debug:
+            msg:
+              - "{{ disk_usage.stdout }}"
+              - "{{ memory_usage.stdout }}"
+              - "Log files: {{ log_sizes.stdout_lines }}"
+      when: performance_check
+      tags: [performance]
+
+    - name: Security check
+      block:
+        - name: Check file permissions
+          ansible.builtin.stat:
+            path: "{{ ids_config_path }}/ids.conf"
+          register: config_perms
+
+        - name: Verify secure permissions
+          ansible.builtin.assert:
+            that:
+              - config_perms.stat.mode == '0640'
+            fail_msg: "Configuration file has insecure permissions"
+
+        - name: Check for recent alerts
+          ansible.builtin.shell: |
+            tail -20 {{ ids_log_path }}/alerts.log 2>/dev/null | grep -c ALERT || echo "0"
+          register: recent_alerts
+          changed_when: false
+          failed_when: false
+
+        - name: Display security status
+          ansible.builtin.debug:
+            msg:
+              - "Config permissions: OK"
+              - "Recent alerts: {{ recent_alerts.stdout }}"
+      when: security_check
+      tags: [security]
+
+    - name: Run comprehensive health check
+      ansible.builtin.command: "{{ ids_base_path }}/bin/ids-healthcheck.sh"
+      register: health_check
+      changed_when: false
+      failed_when: health_check.rc > 1
+      when: detailed_check
+      tags: [health]
+
+    - name: Generate status report
+      ansible.builtin.template:
+        src: status-report.txt.j2
+        dest: "/tmp/ids_status_{{ ansible_hostname }}_{{ ansible_date_time.epoch }}.txt"
+      delegate_to: localhost
+      tags: [report]
+
+  post_tasks:
+    - name: Summary
+      ansible.builtin.debug:
+        msg:
+          - "IDS Status Check Complete"
+          - "Host: {{ ansible_hostname }}"
+          - "Installation: {{ 'OK' if dir_check.results[0].stat.exists else 'MISSING' }}"
+          - "Service: {{ 'RUNNING' if process_status.stdout_lines | length > 0 else 'STOPPED' }}"
+      tags: [summary]

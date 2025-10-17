@@ -1,0 +1,53 @@
+[Unit]
+Description=POSIX IDS Monitoring Service
+After=network.target auditd.service
+Wants=network-online.target
+
+[Service]
+Type=forking
+User={{ ids_user }}
+Group={{ ids_group }}
+WorkingDirectory={{ ids_base_path }}
+Environment="IDS_HOME={{ ids_base_path }}"
+Environment="IDS_LOG={{ ids_log_path }}"
+Environment="IDS_CONFIG={{ ids_config_path }}/ids.conf"
+
+# Pre-start checks
+ExecStartPre=/bin/sh -c 'test -x {{ ids_base_path }}/bin/monitor.sh'
+ExecStartPre=/bin/sh -c 'test -r {{ ids_config_path }}/ids.conf'
+
+# Main service
+ExecStart={{ ids_base_path }}/bin/ids-wrapper.sh start
+ExecStop={{ ids_base_path }}/bin/ids-wrapper.sh stop
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Process management
+PIDFile=/var/run/ids/monitor.pid
+Restart=on-failure
+RestartSec=30
+TimeoutStartSec=60
+TimeoutStopSec=30
+
+# Security
+PrivateTmp=yes
+NoNewPrivileges=yes
+{% if ids_dedicated_user | default(false) %}
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths={{ ids_log_path }} {{ ids_base_path }}/tmp /var/lib/ids
+{% endif %}
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+{% if ids_performance.max_memory is defined %}
+MemoryLimit={{ ids_performance.max_memory }}
+{% endif %}
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ids
+
+[Install]
+WantedBy=multi-user.target

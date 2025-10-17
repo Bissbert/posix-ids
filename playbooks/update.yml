@@ -1,0 +1,110 @@
+---
+# Update existing IDS installations
+- name: Update IDS on target servers
+  hosts: "{{ target_hosts | default('ids_servers') }}"
+  become: true
+  gather_facts: true
+  serial: "{{ rolling_update_batch_size | default(1) }}"
+
+  vars:
+    update_mode: true
+    backup_before_update: true
+    stop_service_for_update: true
+
+  pre_tasks:
+    - name: Check current IDS version
+      ansible.builtin.shell: |
+        if [ -f {{ ids_base_path }}/VERSION ]; then
+          cat {{ ids_base_path }}/VERSION
+        else
+          echo "unknown"
+        fi
+      register: current_version
+      changed_when: false
+      tags: [version]
+
+    - name: Display current version
+      ansible.builtin.debug:
+        msg: "Current IDS version: {{ current_version.stdout }}"
+      tags: [version]
+
+    - name: Create pre-update backup
+      block:
+        - name: Stop IDS service
+          ansible.builtin.systemd:
+            name: ids.service
+            state: stopped
+          when:
+            - ids_service_type == "systemd"
+            - stop_service_for_update
+          ignore_errors: true
+
+        - name: Backup current installation
+          ansible.builtin.archive:
+            path:
+              - "{{ ids_base_path }}"
+              - "{{ ids_config_path }}"
+              - /var/lib/ids/baselines
+            dest: "{{ ids_backup_path }}/pre_update_{{ ansible_date_time.epoch }}.tar.gz"
+            format: gz
+      when: backup_before_update
+      tags: [backup]
+
+  tasks:
+    - name: Update monitoring scripts
+      ansible.builtin.copy:
+        src: "{{ ids_source_path }}/bin/{{ item }}"
+        dest: "{{ ids_base_path }}/bin/{{ item }}"
+        owner: "{{ ids_user }}"
+        group: "{{ ids_group }}"
+        mode: "0755"
+        backup: yes
+      loop:
+        - monitor.sh
+        - baseline.sh
+        - alert.sh
+      notify: restart ids
+      tags: [update]
+
+    - name: Update configuration templates
+      ansible.builtin.include_role:
+        name: ids_config
+      tags: [config]
+
+    - name: Update VERSION file
+      ansible.builtin.copy:
+        content: "{{ ids_version }}"
+        dest: "{{ ids_base_path }}/VERSION"
+        owner: "{{ ids_user }}"
+        group: "{{ ids_group }}"
+        mode: "0644"
+      tags: [update]
+
+  post_tasks:
+    - name: Restart IDS service
+      ansible.builtin.systemd:
+        name: ids.service
+        state: restarted
+        daemon_reload: yes
+      when: ids_service_type == "systemd"
+      tags: [service]
+
+    - name: Verify update
+      ansible.builtin.command: "{{ ids_base_path }}/bin/ids-healthcheck.sh"
+      register: health_check
+      changed_when: false
+      failed_when: health_check.rc > 1
+      tags: [verify]
+
+    - name: Display health check results
+      ansible.builtin.debug:
+        var: health_check.stdout_lines
+      tags: [verify]
+
+  handlers:
+    - name: restart ids
+      ansible.builtin.systemd:
+        name: ids.service
+        state: restarted
+      when: ids_service_type == "systemd"
+      listen: "restart ids"

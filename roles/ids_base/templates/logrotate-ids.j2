@@ -1,0 +1,30 @@
+# Managed by Ansible - IDS Log Rotation
+{{ ids_log_path }}/*.log {
+    daily
+    missingok
+    rotate {{ ids_log_rotate_count }}
+    maxsize {{ ids_log_max_size }}
+    {% if ids_log_compress %}
+    compress
+    delaycompress
+    {% endif %}
+    notifempty
+    create 0640 {{ ids_user }} {{ ids_group }}
+    sharedscripts
+    postrotate
+        # Send signal to IDS to reopen log files
+        if [ -f /var/run/ids/monitor.pid ]; then
+            kill -USR1 $(cat /var/run/ids/monitor.pid) 2>/dev/null || true
+        fi
+    endscript
+}
+
+{{ ids_log_path }}/archive/*.log {
+    weekly
+    missingok
+    rotate 52
+    compress
+    notifempty
+    maxage {{ ids_log_retention_days }}
+    create 0640 {{ ids_user }} {{ ids_group }}
+}

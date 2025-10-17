@@ -1,0 +1,34 @@
+---
+# Validate monitoring setup
+- name: Check if monitoring script is executable
+  ansible.builtin.stat:
+    path: "{{ ids_base_path }}/bin/monitor.sh"
+  register: monitor_script
+  tags: [validate]
+
+- name: Verify monitoring script exists and is executable
+  ansible.builtin.assert:
+    that:
+      - monitor_script.stat.exists
+      - monitor_script.stat.executable
+    fail_msg: "Monitor script not found or not executable"
+  tags: [validate]
+
+- name: Test monitoring script syntax
+  ansible.builtin.shell: |
+    sh -n {{ ids_base_path }}/bin/monitor.sh
+  changed_when: false
+  tags: [validate]
+
+- name: Run health check
+  ansible.builtin.command: "{{ ids_base_path }}/bin/ids-healthcheck.sh"
+  register: health_check
+  changed_when: false
+  failed_when: health_check.rc > 1
+  tags: [validate, healthcheck]
+
+- name: Display health check results
+  ansible.builtin.debug:
+    msg: "{{ health_check.stdout_lines }}"
+  when: health_check.stdout_lines is defined
+  tags: [validate, healthcheck]

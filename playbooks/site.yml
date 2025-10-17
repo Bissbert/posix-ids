@@ -1,0 +1,74 @@
+---
+# Complete IDS deployment playbook
+- name: Deploy POSIX IDS - Complete Installation
+  hosts: ids_servers
+  become: true
+  gather_facts: true
+  serial: "{{ rolling_update_batch_size | default(2) }}"
+  max_fail_percentage: "{{ max_fail_percentage | default(25) }}"
+
+  pre_tasks:
+    - name: Display deployment information
+      ansible.builtin.debug:
+        msg:
+          - "Deploying IDS version: {{ ids_version }}"
+          - "Target host: {{ ansible_hostname }}"
+          - "OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "Environment: {{ environment | default('production') }}"
+      tags: [always]
+
+    - name: Create deployment backup
+      ansible.builtin.include_tasks: ../tasks/backup.yml
+      when: backup_before_deploy | default(true)
+      tags: [backup]
+
+    - name: Pre-deployment validation
+      ansible.builtin.include_tasks: ../tasks/pre_validate.yml
+      when: pre_update_validation | default(true)
+      tags: [validate]
+
+  roles:
+    - role: ids_base
+      tags: [base, install]
+
+    - role: ids_monitor
+      tags: [monitor, install]
+
+    - role: ids_config
+      tags: [config]
+
+    - role: ids_alerts
+      tags: [alerts]
+      when: ids_alert_enabled | default(true)
+
+    - role: ids_baseline
+      tags: [baseline]
+
+    - role: ids_splunk
+      tags: [splunk]
+      when: splunk_enabled | default(false)
+
+  post_tasks:
+    - name: Post-deployment validation
+      ansible.builtin.include_tasks: ../tasks/post_validate.yml
+      when: post_update_validation | default(true)
+      tags: [validate]
+
+    - name: Generate deployment report
+      ansible.builtin.include_tasks: ../tasks/report.yml
+      tags: [report]
+
+    - name: Send deployment notification
+      ansible.builtin.include_tasks: ../tasks/notify.yml
+      when: deployment_notifications | default(true)
+      tags: [notify]
+
+  handlers:
+    - name: restart ids
+      ansible.builtin.include_tasks: ../handlers/restart_ids.yml
+      listen: "restart ids"
+
+    - name: reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: yes
+      listen: "reload systemd"

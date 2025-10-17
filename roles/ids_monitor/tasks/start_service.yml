@@ -1,0 +1,47 @@
+---
+# Start monitoring service
+- name: Start IDS service (systemd)
+  ansible.builtin.systemd:
+    name: ids.service
+    state: "{{ ids_service_state }}"
+    enabled: "{{ ids_service_enabled }}"
+  when: ids_service_type == "systemd"
+  register: service_start
+  tags: [service, start]
+
+- name: Start IDS service (init.d)
+  ansible.builtin.service:
+    name: ids
+    state: "{{ ids_service_state }}"
+    enabled: "{{ ids_service_enabled }}"
+  when: ids_service_type == "initd"
+  register: service_start
+  tags: [service, start]
+
+- name: Verify service is running
+  ansible.builtin.shell: |
+    sleep 5
+    if [ "{{ ids_service_type }}" = "systemd" ]; then
+      systemctl is-active ids.service
+    elif [ "{{ ids_service_type }}" = "cron" ]; then
+      crontab -u {{ ids_user }} -l | grep -q "IDS Monitoring"
+    else
+      service ids status
+    fi
+  changed_when: false
+  when: ids_service_state == "started"
+  tags: [service, verify]
+
+- name: Check for running IDS processes
+  ansible.builtin.shell: |
+    ps aux | grep -E "(monitor\.sh|ids-wrapper)" | grep -v grep
+  register: ids_processes
+  changed_when: false
+  failed_when: false
+  tags: [service, verify]
+
+- name: Display running IDS processes
+  ansible.builtin.debug:
+    msg: "{{ ids_processes.stdout_lines }}"
+  when: ids_processes.stdout_lines is defined and ids_processes.stdout_lines | length > 0
+  tags: [service, verify]

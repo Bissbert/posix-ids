@@ -1,0 +1,42 @@
+---
+# Create IDS directory structure
+- name: Create IDS directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default(ids_user) }}"
+    group: "{{ item.group | default(ids_group) }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ ids_base_path }}", mode: "0755" }
+    - { path: "{{ ids_base_path }}/bin", mode: "0755" }
+    - { path: "{{ ids_base_path }}/config", mode: "0750" }
+    - { path: "{{ ids_base_path }}/lib", mode: "0755" }
+    - { path: "{{ ids_base_path }}/tmp", mode: "1777" }
+    - { path: "{{ ids_config_path }}", mode: "0750" }
+    - { path: "{{ ids_log_path }}", mode: "0750" }
+    - { path: "{{ ids_log_path }}/archive", mode: "0750" }
+    - { path: "{{ ids_backup_path }}", mode: "0750" }
+    - { path: "/var/lib/ids", mode: "0750" }
+    - { path: "/var/lib/ids/baselines", mode: "0750" }
+    - { path: "/var/lib/ids/cache", mode: "0750" }
+  tags: [directories]
+
+- name: Create run directory for PID files
+  ansible.builtin.file:
+    path: /var/run/ids
+    state: directory
+    owner: "{{ ids_user }}"
+    group: "{{ ids_group }}"
+    mode: "0755"
+  tags: [directories]
+
+- name: Set sticky bit on temporary directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    mode: "1777"
+  loop:
+    - "{{ ids_base_path }}/tmp"
+    - /tmp/ids_install
+  ignore_errors: true
+  tags: [directories, security]

@@ -1,0 +1,53 @@
+---
+# Deploy monitoring scripts
+- name: Copy monitoring scripts to target
+  ansible.builtin.copy:
+    src: "{{ ids_source_path }}/bin/{{ item }}"
+    dest: "{{ ids_base_path }}/bin/{{ item }}"
+    owner: "{{ ids_user }}"
+    group: "{{ ids_group }}"
+    mode: "0755"
+    backup: yes
+  loop:
+    - monitor.sh
+    - baseline.sh
+    - alert.sh
+    - setup.sh
+  notify: restart ids
+  tags: [deploy]
+
+- name: Deploy additional monitoring utilities
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ ids_base_path }}/bin/{{ item }}"
+    owner: "{{ ids_user }}"
+    group: "{{ ids_group }}"
+    mode: "0755"
+  loop:
+    - ids-wrapper.sh
+    - ids-healthcheck.sh
+    - ids-status.sh
+  notify: restart ids
+  tags: [deploy]
+
+- name: Deploy library functions
+  ansible.builtin.template:
+    src: lib-functions.sh.j2
+    dest: "{{ ids_base_path }}/lib/functions.sh"
+    owner: "{{ ids_user }}"
+    group: "{{ ids_group }}"
+    mode: "0644"
+  tags: [deploy]
+
+- name: Create script symlinks for easy access
+  ansible.builtin.file:
+    src: "{{ ids_base_path }}/bin/{{ item }}"
+    dest: "/usr/local/bin/ids-{{ item | regex_replace('.sh$', '') }}"
+    state: link
+  loop:
+    - monitor.sh
+    - baseline.sh
+    - alert.sh
+    - ids-status.sh
+  when: ids_create_symlinks | default(true)
+  tags: [deploy, symlinks]

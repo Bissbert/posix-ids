@@ -1,0 +1,102 @@
+#!/bin/sh
+# Managed by Ansible - IDS Status Script
+# POSIX-compliant status reporting
+
+IDS_HOME="{{ ids_base_path }}"
+IDS_CONFIG="{{ ids_config_path }}/ids.conf"
+IDS_LOG="{{ ids_log_path }}"
+
+# Load configuration
+[ -f "$IDS_CONFIG" ] && . "$IDS_CONFIG"
+
+echo "======================================"
+echo "IDS Status Report"
+echo "Host: {{ ansible_hostname }}"
+echo "Date: $(date '+%Y-%m-%d %H:%M:%S')"
+echo "======================================"
+
+# Version information
+echo "\nVersion Information:"
+if [ -f "$IDS_HOME/VERSION" ]; then
+    echo "  IDS Version: $(cat "$IDS_HOME/VERSION")"
+else
+    echo "  IDS Version: Unknown"
+fi
+echo "  Environment: {{ environment | default('production') }}"
+echo "  Role: {{ ids_role | default('default') }}"
+
+# Service status
+echo "\nService Status:"
+case "{{ ids_service_type }}" in
+    systemd)
+        if systemctl is-active ids.service >/dev/null 2>&1; then
+            echo "  Service: Running (systemd)"
+            systemctl status ids.service --no-pager | head -10
+        else
+            echo "  Service: Stopped"
+        fi
+        ;;
+    cron)
+        if crontab -u {{ ids_user }} -l 2>/dev/null | grep -q "IDS Monitoring"; then
+            echo "  Service: Configured (cron)"
+            echo "  Cron Jobs:"
+            crontab -u {{ ids_user }} -l | grep IDS
+        else
+            echo "  Service: Not configured"
+        fi
+        ;;
+esac
+
+# Process information
+echo "\nRunning Processes:"
+ps aux | grep -E "(monitor\.sh|baseline\.sh|alert\.sh)" | grep -v grep || echo "  No IDS processes running"
+
+# Configuration status
+echo "\nConfiguration:"
+echo "  Config Path: $IDS_CONFIG"
+echo "  Check Interval: {{ ids_check_interval }}s"
+echo "  Alert Status: {{ ids_alert_enabled | lower }}"
+echo "  Log Level: {{ ids_log_level }}"
+
+# Baseline status
+echo "\nBaseline Status:"
+if [ -f /var/lib/ids/baselines/current.baseline ]; then
+    echo "  Current Baseline: $(ls -lh /var/lib/ids/baselines/current.baseline | awk '{print $5, $6, $7, $8}')"
+    baseline_age=$(($(date +%s) - $(stat -c %Y /var/lib/ids/baselines/current.baseline 2>/dev/null || stat -f %m /var/lib/ids/baselines/current.baseline)))
+    echo "  Baseline Age: $((baseline_age / 86400)) days"
+else
+    echo "  Current Baseline: Not found"
+fi
+
+# Log information
+echo "\nLog Files:"
+if [ -d "$IDS_LOG" ]; then
+    echo "  Log Directory: $IDS_LOG"
+    echo "  Total Size: $(du -sh "$IDS_LOG" | awk '{print $1}')"
+    echo "  Recent Logs:"
+    ls -lht "$IDS_LOG"/*.log 2>/dev/null | head -5 | awk '{print "    " $9 ": " $5}'
+else
+    echo "  Log Directory: Not found"
+fi
+
+# Recent alerts
+echo "\nRecent Alerts:"
+if [ -f "$IDS_LOG/alerts.log" ]; then
+    alert_count=$(grep -c "ALERT" "$IDS_LOG/alerts.log" 2>/dev/null || echo "0")
+    echo "  Total Alerts: $alert_count"
+    if [ "$alert_count" -gt 0 ]; then
+        echo "  Last 5 Alerts:"
+        tail -5 "$IDS_LOG/alerts.log" | sed 's/^/    /'
+    fi
+else
+    echo "  No alert log found"
+fi
+
+# System resources
+echo "\nSystem Resources:"
+echo "  Load Average: $(uptime | awk -F'load average:' '{print $2}')"
+echo "  Memory Usage: $(free -m 2>/dev/null | awk 'NR==2 {printf "%.1f%%", $3/$2*100}' || echo "N/A")"
+echo "  Disk Usage:"
+df -h "$IDS_LOG" /tmp | awk 'NR>1 {printf "    %s: %s used (%s)\n", $6, $3, $5}'
+
+echo "\n======================================"

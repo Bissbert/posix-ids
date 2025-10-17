@@ -1,0 +1,128 @@
+---
+# IDS Installation Settings
+ids_version: "1.0.0"
+ids_source_path: "{{ playbook_dir }}/../"  # Path to IDS source code
+ids_backup_path: /var/backups/ids
+ids_temp_path: /tmp/ids_install
+
+# OS Package Dependencies
+ids_packages_common:
+  - coreutils
+  - findutils
+  - grep
+  - sed
+  - gawk
+  - diffutils
+
+ids_packages_debian:
+  - dash
+  - procps
+  - net-tools
+  - lsof
+  - netcat-openbsd
+
+ids_packages_redhat:
+  - dash
+  - procps-ng
+  - net-tools
+  - lsof
+  - nmap-ncat
+
+ids_packages_alpine:
+  - busybox
+  - procps
+  - net-tools
+  - lsof
+  - netcat-openbsd
+
+# Monitoring Thresholds
+ids_thresholds:
+  cpu_warning: 80
+  cpu_critical: 95
+  memory_warning: 85
+  memory_critical: 95
+  disk_warning: 80
+  disk_critical: 90
+  load_warning: 4.0
+  load_critical: 8.0
+  failed_login_threshold: 5
+  port_scan_threshold: 100
+  file_change_threshold: 50
+
+# Check Configurations
+ids_checks:
+  system_integrity:
+    enabled: true
+    interval: 300
+    priority: high
+  network_monitoring:
+    enabled: true
+    interval: 60
+    priority: critical
+  log_analysis:
+    enabled: true
+    interval: 120
+    priority: medium
+  user_activity:
+    enabled: true
+    interval: 300
+    priority: medium
+  process_monitoring:
+    enabled: true
+    interval: 60
+    priority: high
+
+# Baseline Settings
+ids_baseline:
+  auto_update: false
+  update_schedule: "0 3 * * *"  # 3 AM daily
+  exclusions:
+    - /tmp
+    - /var/tmp
+    - /var/cache
+    - /var/log
+    - /proc
+    - /sys
+    - /dev
+    - /run
+
+# Logging Configuration
+ids_log_format: json  # json or text
+ids_log_level: info   # debug, info, warning, error, critical
+ids_log_max_size: 100M
+ids_log_compress: true
+ids_log_rotate_count: 10
+
+# Alert Destinations
+ids_alert_destinations:
+  - type: webhook
+    enabled: "{{ ids_alert_enabled | default(true) }}"
+    url: "{{ ids_alert_webhook | default('') }}"
+    timeout: 30
+  - type: email
+    enabled: "{{ ids_alert_email_enabled | default(false) }}"
+    smtp_server: "{{ smtp_server | default('localhost') }}"
+    smtp_port: "{{ smtp_port | default(25) }}"
+    from: "ids-alerts@{{ ansible_domain | default('example.com') }}"
+    to: "{{ ids_alert_email }}"
+  - type: syslog
+    enabled: true
+    facility: local0
+    severity: warning
+  - type: file
+    enabled: true
+    path: "{{ ids_log_path }}/alerts.log"
+
+# Performance Tuning
+ids_performance:
+  max_parallel_checks: 5
+  check_timeout: 30
+  cache_enabled: true
+  cache_ttl: 300
+
+# Rolling Deployment Settings
+rolling_update_batch_size: 2
+rolling_update_delay: 10  # seconds between batches
+pre_update_validation: true
+post_update_validation: true
+rollback_on_failure: true

@@ -1,0 +1,49 @@
+---
+# Configure cron-based service
+- name: Deploy cron wrapper script
+  ansible.builtin.template:
+    src: ids-cron-wrapper.sh.j2
+    dest: "{{ ids_base_path }}/bin/ids-cron-wrapper.sh"
+    owner: "{{ ids_user }}"
+    group: "{{ ids_group }}"
+    mode: "0755"
+  tags: [service, cron]
+
+- name: Configure monitoring cron job
+  ansible.builtin.cron:
+    name: "IDS Monitoring"
+    minute: "*/{{ (ids_check_interval / 60) | int }}"
+    hour: "*"
+    day: "*"
+    month: "*"
+    weekday: "*"
+    user: "{{ ids_user }}"
+    job: "{{ ids_base_path }}/bin/ids-cron-wrapper.sh monitor >> {{ ids_log_path }}/cron.log 2>&1"
+    state: "{{ 'present' if ids_service_enabled else 'absent' }}"
+  tags: [service, cron]
+
+- name: Configure baseline update cron job
+  ansible.builtin.cron:
+    name: "IDS Baseline Update"
+    minute: "0"
+    hour: "3"
+    day: "*"
+    month: "*"
+    weekday: "*"
+    user: "{{ ids_user }}"
+    job: "{{ ids_base_path }}/bin/ids-cron-wrapper.sh baseline >> {{ ids_log_path }}/baseline.log 2>&1"
+    state: "{{ 'present' if ids_baseline.auto_update else 'absent' }}"
+  tags: [service, cron, baseline]
+
+- name: Configure alert check cron job
+  ansible.builtin.cron:
+    name: "IDS Alert Check"
+    minute: "*/5"
+    hour: "*"
+    day: "*"
+    month: "*"
+    weekday: "*"
+    user: "{{ ids_user }}"
+    job: "{{ ids_base_path }}/bin/ids-cron-wrapper.sh alert-check >> {{ ids_log_path }}/alerts.log 2>&1"
+    state: "{{ 'present' if ids_alert_enabled else 'absent' }}"
+  tags: [service, cron, alerts]

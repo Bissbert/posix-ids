@@ -1,0 +1,126 @@
+#!/bin/sh
+# Managed by Ansible - IDS Health Check Script
+# POSIX-compliant health check
+
+set -e
+
+IDS_HOME="{{ ids_base_path }}"
+IDS_CONFIG="{{ ids_config_path }}/ids.conf"
+IDS_LOG="{{ ids_log_path }}"
+
+# Exit codes
+EXIT_OK=0
+EXIT_WARNING=1
+EXIT_CRITICAL=2
+
+# Load configuration
+[ -f "$IDS_CONFIG" ] && . "$IDS_CONFIG"
+
+# Initialize status
+STATUS=$EXIT_OK
+MESSAGES=""
+
+# Check functions
+check_directories() {
+    for dir in "$IDS_HOME" "$IDS_CONFIG" "$IDS_LOG"; do
+        if [ ! -d "$dir" ]; then
+            MESSAGES="$MESSAGES\nERROR: Directory missing: $dir"
+            STATUS=$EXIT_CRITICAL
+        fi
+    done
+}
+
+check_scripts() {
+    for script in monitor.sh baseline.sh alert.sh; do
+        if [ ! -x "$IDS_HOME/bin/$script" ]; then
+            MESSAGES="$MESSAGES\nERROR: Script not executable: $script"
+            STATUS=$EXIT_CRITICAL
+        fi
+    done
+}
+
+check_config() {
+    if [ ! -r "$IDS_CONFIG" ]; then
+        MESSAGES="$MESSAGES\nERROR: Configuration not readable"
+        STATUS=$EXIT_CRITICAL
+    else
+        sh -n "$IDS_CONFIG" 2>/dev/null || {
+            MESSAGES="$MESSAGES\nERROR: Configuration syntax error"
+            STATUS=$EXIT_CRITICAL
+        }
+    fi
+}
+
+check_service() {
+    case "{{ ids_service_type }}" in
+        systemd)
+            if ! systemctl is-active ids.service >/dev/null 2>&1; then
+                MESSAGES="$MESSAGES\nWARNING: IDS service not running"
+                [ $STATUS -eq $EXIT_OK ] && STATUS=$EXIT_WARNING
+            fi
+            ;;
+        cron)
+            if ! crontab -u {{ ids_user }} -l 2>/dev/null | grep -q "IDS Monitoring"; then
+                MESSAGES="$MESSAGES\nWARNING: IDS cron job not found"
+                [ $STATUS -eq $EXIT_OK ] && STATUS=$EXIT_WARNING
+            fi
+            ;;
+    esac
+}
+
+check_disk_space() {
+    for path in "$IDS_LOG" /tmp /var; do
+        if [ -d "$path" ]; then
+            available=$(df -BM "$path" | tail -1 | awk '{print $4}' | sed 's/M//')
+            if [ "$available" -lt 100 ]; then
+                MESSAGES="$MESSAGES\nWARNING: Low disk space in $path: ${available}MB"
+                [ $STATUS -eq $EXIT_OK ] && STATUS=$EXIT_WARNING
+            fi
+        fi
+    done
+}
+
+check_logs() {
+    if [ -d "$IDS_LOG" ]; then
+        log_count=$(find "$IDS_LOG" -name "*.log" -type f 2>/dev/null | wc -l)
+        if [ "$log_count" -eq 0 ]; then
+            MESSAGES="$MESSAGES\nWARNING: No log files found"
+            [ $STATUS -eq $EXIT_OK ] && STATUS=$EXIT_WARNING
+        fi
+    fi
+}
+
+check_baseline() {
+    if [ ! -f /var/lib/ids/baselines/current.baseline ]; then
+        MESSAGES="$MESSAGES\nWARNING: No current baseline found"
+        [ $STATUS -eq $EXIT_OK ] && STATUS=$EXIT_WARNING
+    fi
+}
+
+# Run checks
+echo "IDS Health Check - $(date '+%Y-%m-%d %H:%M:%S')"
+echo "================================================"
+
+check_directories
+check_scripts
+check_config
+check_service
+check_disk_space
+check_logs
+check_baseline
+
+# Output results
+if [ $STATUS -eq $EXIT_OK ]; then
+    echo "Status: HEALTHY"
+elif [ $STATUS -eq $EXIT_WARNING ]; then
+    echo "Status: WARNING"
+else
+    echo "Status: CRITICAL"
+fi
+
+if [ -n "$MESSAGES" ]; then
+    printf "%s\n" "$MESSAGES"
+fi
+
+echo "================================================"
+exit $STATUS

@@ -1,0 +1,78 @@
+---
+# Preflight checks for IDS installation
+- name: Check if running as root or with sudo
+  ansible.builtin.command: id -u
+  register: userid
+  changed_when: false
+  failed_when: false
+  tags: [preflight]
+
+- name: Verify root/sudo access
+  ansible.builtin.fail:
+    msg: "This playbook requires root or sudo access"
+  when:
+    - userid.stdout != "0"
+    - not ansible_become
+  tags: [preflight]
+
+- name: Check available disk space
+  ansible.builtin.shell: |
+    df -BM {{ item }} | tail -1 | awk '{print $4}' | sed 's/M//'
+  register: disk_space
+  changed_when: false
+  loop:
+    - /opt
+    - /var/log
+    - /tmp
+  tags: [preflight]
+
+- name: Verify minimum disk space requirements
+  ansible.builtin.assert:
+    that:
+      - item.stdout | int > 500
+    fail_msg: "Insufficient disk space in {{ item.item }}. Need at least 500MB"
+  loop: "{{ disk_space.results }}"
+  tags: [preflight]
+
+- name: Check for existing IDS installation
+  ansible.builtin.stat:
+    path: "{{ ids_base_path }}"
+  register: existing_install
+  tags: [preflight]
+
+- name: Backup existing installation if present
+  block:
+    - name: Create backup directory
+      ansible.builtin.file:
+        path: "{{ ids_backup_path }}"
+        state: directory
+        mode: "0750"
+        owner: root
+        group: root
+
+    - name: Create timestamped backup
+      ansible.builtin.archive:
+        path: "{{ ids_base_path }}"
+        dest: "{{ ids_backup_path }}/ids_backup_{{ ansible_date_time.epoch }}.tar.gz"
+        format: gz
+      when: existing_install.stat.exists
+  when: existing_install.stat.exists
+  tags: [preflight, backup]
+
+- name: Check POSIX shell availability
+  ansible.builtin.command: which {{ item }}
+  register: shell_check
+  changed_when: false
+  failed_when: false
+  loop:
+    - sh
+    - dash
+    - ash
+  tags: [preflight]
+
+- name: Verify at least one POSIX shell is available
+  ansible.builtin.assert:
+    that:
+      - shell_check.results | selectattr('rc', 'equalto', 0) | list | length > 0
+    fail_msg: "No POSIX-compliant shell found (sh, dash, or ash)"
+  tags: [preflight]

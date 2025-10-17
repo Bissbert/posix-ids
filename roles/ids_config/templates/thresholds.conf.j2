@@ -1,0 +1,42 @@
+#!/bin/sh
+# Managed by Ansible - IDS Thresholds Configuration
+# Environment: {{ environment | default('production') }}
+
+# System Resource Thresholds
+THRESHOLD_CPU_WARNING="{{ ids_thresholds.cpu_warning }}"
+THRESHOLD_CPU_CRITICAL="{{ ids_thresholds.cpu_critical }}"
+THRESHOLD_MEM_WARNING="{{ ids_thresholds.memory_warning }}"
+THRESHOLD_MEM_CRITICAL="{{ ids_thresholds.memory_critical }}"
+THRESHOLD_DISK_WARNING="{{ ids_thresholds.disk_warning }}"
+THRESHOLD_DISK_CRITICAL="{{ ids_thresholds.disk_critical }}"
+THRESHOLD_LOAD_WARNING="{{ ids_thresholds.load_warning }}"
+THRESHOLD_LOAD_CRITICAL="{{ ids_thresholds.load_critical }}"
+
+# Security Event Thresholds
+THRESHOLD_FAILED_LOGINS="{{ ids_thresholds.failed_login_threshold }}"
+THRESHOLD_PORT_SCANS="{{ ids_thresholds.port_scan_threshold }}"
+THRESHOLD_FILE_CHANGES="{{ ids_thresholds.file_change_threshold }}"
+
+# Network Thresholds
+THRESHOLD_CONNECTIONS_PER_IP=100
+THRESHOLD_NEW_PORTS=10
+THRESHOLD_BANDWIDTH_MBPS=1000
+
+# Process Thresholds
+THRESHOLD_ZOMBIE_PROCESSES=10
+THRESHOLD_MAX_PROCESSES=500
+THRESHOLD_HIGH_CPU_PROCESS=90
+
+# Custom thresholds per role
+{% if ids_role is defined %}
+{% if ids_role == 'frontend' %}
+THRESHOLD_HTTP_CONNECTIONS=1000
+THRESHOLD_HTTP_ERROR_RATE=5
+{% elif ids_role == 'backend' %}
+THRESHOLD_DB_CONNECTIONS=100
+THRESHOLD_QUEUE_SIZE=1000
+{% elif ids_role == 'edge' %}
+THRESHOLD_PACKET_LOSS=1
+THRESHOLD_LATENCY_MS=100
+{% endif %}
+{% endif %}

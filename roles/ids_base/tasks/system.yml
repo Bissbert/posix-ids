@@ -1,0 +1,40 @@
+---
+# System configuration and tuning
+- name: Configure kernel parameters for IDS
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    sysctl_file: /etc/sysctl.d/99-ids.conf
+    reload: yes
+  loop:
+    - { name: "net.core.netdev_max_backlog", value: "5000" }
+    - { name: "net.ipv4.tcp_syncookies", value: "1" }
+    - { name: "net.ipv4.conf.all.log_martians", value: "1" }
+    - { name: "net.ipv4.conf.default.log_martians", value: "1" }
+    - { name: "net.ipv4.icmp_echo_ignore_broadcasts", value: "1" }
+    - { name: "net.ipv4.icmp_ignore_bogus_error_responses", value: "1" }
+    - { name: "kernel.panic", value: "60" }
+    - { name: "kernel.panic_on_oops", value: "1" }
+  when: ids_tune_kernel | default(true)
+  tags: [system, kernel]
+
+- name: Set system resource limits for IDS
+  ansible.builtin.template:
+    src: limits-ids.conf.j2
+    dest: /etc/security/limits.d/99-ids.conf
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [system, limits]
+
+- name: Enable audit logging
+  ansible.builtin.service:
+    name: auditd
+    enabled: yes
+    state: started
+  when:
+    - ids_enable_auditd | default(true)
+    - ansible_os_family != "Alpine"
+  ignore_errors: true
+  tags: [system, audit]

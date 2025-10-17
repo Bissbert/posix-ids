@@ -1,0 +1,68 @@
+---
+# Quick deployment playbook for IDS
+- name: Deploy IDS to target servers
+  hosts: "{{ target_hosts | default('ids_servers') }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    quick_deploy: true
+    skip_baseline: "{{ skip_baseline_generation | default(false) }}"
+
+  pre_tasks:
+    - name: Verify target hosts
+      ansible.builtin.ping:
+      tags: [always]
+
+    - name: Check available space
+      ansible.builtin.shell: df -h /opt /var/log
+      register: disk_space
+      changed_when: false
+      tags: [preflight]
+
+    - name: Display disk space
+      ansible.builtin.debug:
+        var: disk_space.stdout_lines
+      tags: [preflight]
+
+  tasks:
+    - name: Install IDS base
+      ansible.builtin.include_role:
+        name: ids_base
+      tags: [base]
+
+    - name: Deploy monitoring scripts
+      ansible.builtin.include_role:
+        name: ids_monitor
+      tags: [monitor]
+
+    - name: Apply configuration
+      ansible.builtin.include_role:
+        name: ids_config
+      tags: [config]
+
+    - name: Generate initial baseline
+      ansible.builtin.include_role:
+        name: ids_baseline
+      when: not skip_baseline
+      tags: [baseline]
+
+    - name: Start IDS service
+      ansible.builtin.systemd:
+        name: ids.service
+        state: started
+        enabled: yes
+      when: ids_service_type == "systemd"
+      tags: [service]
+
+  post_tasks:
+    - name: Verify deployment
+      ansible.builtin.command: "{{ ids_base_path }}/bin/ids-status.sh"
+      register: ids_status
+      changed_when: false
+      tags: [verify]
+
+    - name: Display IDS status
+      ansible.builtin.debug:
+        var: ids_status.stdout_lines
+      tags: [verify]

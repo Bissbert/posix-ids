@@ -1,0 +1,41 @@
+---
+# Main handlers file
+- name: restart ids
+  block:
+    - name: Stop IDS service
+      ansible.builtin.systemd:
+        name: ids.service
+        state: stopped
+      when: ids_service_type == "systemd"
+      ignore_errors: true
+
+    - name: Wait for service to stop
+      ansible.builtin.pause:
+        seconds: 2
+
+    - name: Start IDS service
+      ansible.builtin.systemd:
+        name: ids.service
+        state: started
+        daemon_reload: yes
+      when: ids_service_type == "systemd"
+
+    - name: Restart via wrapper script
+      ansible.builtin.command: "{{ ids_base_path }}/bin/ids-wrapper.sh restart"
+      when: ids_service_type != "systemd"
+  listen: "restart ids"
+
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: yes
+  listen: "reload systemd"
+
+- name: restart cron
+  ansible.builtin.service:
+    name: "{{ 'cronie' if ansible_os_family == 'RedHat' else 'cron' }}"
+    state: restarted
+  listen: "restart cron"
+
+- name: reload ids config
+  ansible.builtin.command: "{{ ids_base_path }}/bin/ids-wrapper.sh reload"
+  listen: "reload ids config"

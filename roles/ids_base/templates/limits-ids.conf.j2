@@ -1,0 +1,16 @@
+# Managed by Ansible - IDS resource limits
+# Limits for IDS processes
+{{ ids_user }}  soft  nofile  65536
+{{ ids_user }}  hard  nofile  65536
+{{ ids_user }}  soft  nproc   32768
+{{ ids_user }}  hard  nproc   32768
+{{ ids_user }}  soft  memlock unlimited
+{{ ids_user }}  hard  memlock unlimited
+
+{% if ids_dedicated_user | default(false) %}
+# Limits for dedicated IDS service user
+{{ ids_service_user }}  soft  nofile  65536
+{{ ids_service_user }}  hard  nofile  65536
+{{ ids_service_user }}  soft  nproc   4096
+{{ ids_service_user }}  hard  nproc   4096
+{% endif %}

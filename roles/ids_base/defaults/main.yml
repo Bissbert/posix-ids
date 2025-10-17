@@ -1,0 +1,23 @@
+---
+# Default variables for ids_base role
+ids_base_path: /opt/ids
+ids_log_path: /var/log/ids
+ids_config_path: /etc/ids
+ids_backup_path: /var/backups/ids
+
+ids_user: root
+ids_group: root
+ids_dedicated_user: false
+ids_service_user: ids
+
+# Tuning options
+ids_tune_kernel: true
+ids_enable_auditd: true
+ids_setup_sudoers: true
+ids_install_optional_tools: false
+
+# Log rotation
+ids_log_retention_days: 30
+ids_log_compress: true
+ids_log_max_size: 100M
+ids_log_rotate_count: 10

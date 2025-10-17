@@ -1,0 +1,25 @@
+---
+# Configure log rotation for IDS logs
+- name: Install logrotate
+  ansible.builtin.package:
+    name: logrotate
+    state: present
+  tags: [logrotate]
+
+- name: Configure logrotate for IDS logs
+  ansible.builtin.template:
+    src: logrotate-ids.j2
+    dest: /etc/logrotate.d/ids
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [logrotate]
+
+- name: Create log rotation state directory
+  ansible.builtin.file:
+    path: /var/lib/logrotate
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [logrotate]

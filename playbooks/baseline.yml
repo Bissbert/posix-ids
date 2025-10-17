@@ -1,0 +1,129 @@
+---
+# Generate or update system baselines
+- name: Manage IDS baselines
+  hosts: "{{ target_hosts | default('ids_servers') }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    baseline_action: "{{ action | default('generate') }}"  # generate, update, verify, or compare
+    baseline_verbose: true
+
+  tasks:
+    - name: Generate new baseline
+      block:
+        - name: Check for existing baseline
+          ansible.builtin.stat:
+            path: /var/lib/ids/baselines/current.baseline
+          register: current_baseline
+
+        - name: Backup current baseline
+          ansible.builtin.copy:
+            src: /var/lib/ids/baselines/current.baseline
+            dest: "/var/lib/ids/baselines/baseline_{{ ansible_date_time.epoch }}.backup"
+            remote_src: yes
+          when: current_baseline.stat.exists
+
+        - name: Generate system baseline
+          ansible.builtin.command: |
+            {{ ids_base_path }}/bin/baseline.sh \
+              --generate \
+              --output /var/lib/ids/baselines/current.baseline \
+              --verbose
+          register: baseline_gen
+          changed_when: baseline_gen.rc == 0
+
+        - name: Display generation results
+          ansible.builtin.debug:
+            var: baseline_gen.stdout_lines
+          when: baseline_verbose
+      when: baseline_action == "generate"
+      tags: [generate]
+
+    - name: Update existing baseline
+      block:
+        - name: Update baseline with changes
+          ansible.builtin.command: |
+            {{ ids_base_path }}/bin/baseline.sh \
+              --update \
+              --baseline /var/lib/ids/baselines/current.baseline
+          register: baseline_update
+          changed_when: baseline_update.rc == 0
+
+        - name: Display update results
+          ansible.builtin.debug:
+            var: baseline_update.stdout_lines
+      when: baseline_action == "update"
+      tags: [update]
+
+    - name: Verify system against baseline
+      block:
+        - name: Run baseline verification
+          ansible.builtin.command: |
+            {{ ids_base_path }}/bin/baseline.sh \
+              --verify \
+              --baseline /var/lib/ids/baselines/current.baseline \
+              --report
+          register: baseline_verify
+          changed_when: false
+          failed_when: baseline_verify.rc > 2
+
+        - name: Display verification results
+          ansible.builtin.debug:
+            msg: "{{ baseline_verify.stdout_lines }}"
+
+        - name: Save verification report
+          ansible.builtin.copy:
+            content: "{{ baseline_verify.stdout }}"
+            dest: "{{ ids_log_path }}/baseline_verify_{{ ansible_date_time.epoch }}.log"
+          when: baseline_verify.rc > 0
+      when: baseline_action == "verify"
+      tags: [verify]
+
+    - name: Compare baselines
+      block:
+        - name: List available baselines
+          ansible.builtin.find:
+            paths: /var/lib/ids/baselines
+            patterns: "*.baseline,*.backup"
+          register: baseline_files
+
+        - name: Display available baselines
+          ansible.builtin.debug:
+            msg: "{{ item.path }}"
+          loop: "{{ baseline_files.files }}"
+
+        - name: Compare two baselines
+          ansible.builtin.shell: |
+            diff -u \
+              /var/lib/ids/baselines/{{ baseline_file1 | default('current.baseline') }} \
+              /var/lib/ids/baselines/{{ baseline_file2 | default('previous.baseline') }}
+          register: baseline_diff
+          changed_when: false
+          failed_when: false
+          when:
+            - baseline_file1 is defined or baseline_file2 is defined
+
+        - name: Display differences
+          ansible.builtin.debug:
+            var: baseline_diff.stdout_lines
+          when: baseline_diff is defined
+      when: baseline_action == "compare"
+      tags: [compare]
+
+  post_tasks:
+    - name: Update baseline metadata
+      ansible.builtin.template:
+        src: baseline-metadata.json.j2
+        dest: /var/lib/ids/baselines/metadata.json
+      tags: [metadata]
+
+    - name: Set baseline permissions
+      ansible.builtin.file:
+        path: /var/lib/ids/baselines
+        state: directory
+        owner: "{{ ids_user }}"
+        group: "{{ ids_group }}"
+        mode: "0750"
+        recurse: yes
+      tags: [permissions]

@@ -1,0 +1,126 @@
+---
+# Clean uninstall of IDS
+- name: Remove IDS from target servers
+  hosts: "{{ target_hosts | default('ids_servers') }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    create_removal_backup: true
+    remove_all_data: false  # Set to true to remove logs and baselines
+
+  pre_tasks:
+    - name: Confirm removal
+      ansible.builtin.pause:
+        prompt: "This will remove IDS from {{ ansible_play_hosts | length }} hosts. Continue? (yes/no)"
+      register: confirm_removal
+      when: confirm_removal_prompt | default(true)
+
+    - name: Abort if not confirmed
+      ansible.builtin.fail:
+        msg: "Removal cancelled by user"
+      when:
+        - confirm_removal_prompt | default(true)
+        - confirm_removal.user_input != "yes"
+
+  tasks:
+    - name: Stop IDS service
+      block:
+        - name: Stop systemd service
+          ansible.builtin.systemd:
+            name: ids.service
+            state: stopped
+            enabled: no
+          when: ids_service_type == "systemd"
+          ignore_errors: true
+
+        - name: Stop baseline timer
+          ansible.builtin.systemd:
+            name: ids-baseline.timer
+            state: stopped
+            enabled: no
+          when: ids_service_type == "systemd"
+          ignore_errors: true
+
+        - name: Remove cron jobs
+          ansible.builtin.cron:
+            name: "{{ item }}"
+            state: absent
+            user: "{{ ids_user }}"
+          loop:
+            - "IDS Monitoring"
+            - "IDS Baseline Update"
+            - "IDS Alert Check"
+          when: ids_service_type == "cron"
+      tags: [service]
+
+    - name: Create removal backup
+      ansible.builtin.archive:
+        path:
+          - "{{ ids_base_path }}"
+          - "{{ ids_config_path }}"
+          - "{{ ids_log_path }}"
+          - /var/lib/ids
+        dest: "{{ ids_backup_path }}/removal_backup_{{ ansible_date_time.epoch }}.tar.gz"
+        format: gz
+      when: create_removal_backup
+      ignore_errors: true
+      tags: [backup]
+
+    - name: Remove IDS files and directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ ids_base_path }}"
+        - "{{ ids_config_path }}"
+        - /var/run/ids
+        - /etc/systemd/system/ids.service
+        - /etc/systemd/system/ids-baseline.service
+        - /etc/systemd/system/ids-baseline.timer
+        - /etc/logrotate.d/ids
+        - /etc/sudoers.d/ids
+        - /etc/security/limits.d/99-ids.conf
+        - /etc/sysctl.d/99-ids.conf
+      tags: [remove]
+
+    - name: Remove symlinks
+      ansible.builtin.file:
+        path: "/usr/local/bin/ids-{{ item }}"
+        state: absent
+      loop:
+        - monitor
+        - baseline
+        - alert
+        - status
+      tags: [remove]
+
+    - name: Remove data directories (if requested)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ ids_log_path }}"
+        - /var/lib/ids
+        - "{{ ids_backup_path }}"
+      when: remove_all_data | bool
+      tags: [remove, data]
+
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: yes
+      when: ids_service_type == "systemd"
+      tags: [service]
+
+  post_tasks:
+    - name: Verify removal
+      ansible.builtin.stat:
+        path: "{{ ids_base_path }}"
+      register: ids_check
+      tags: [verify]
+
+    - name: Display removal status
+      ansible.builtin.debug:
+        msg: "IDS successfully removed from {{ ansible_hostname }}"
+      when: not ids_check.stat.exists
+      tags: [verify]

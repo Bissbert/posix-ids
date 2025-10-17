@@ -1,0 +1,79 @@
+#!/bin/sh
+# Managed by Ansible - Main IDS Configuration
+# POSIX-compliant configuration file
+
+# Base paths
+IDS_HOME="{{ ids_base_path }}"
+IDS_LOG="{{ ids_log_path }}"
+IDS_CONFIG="{{ ids_config_path }}"
+IDS_LIB="/var/lib/ids"
+
+# Logging
+LOG_LEVEL="{{ ids_log_level }}"
+LOG_FORMAT="{{ ids_log_format }}"
+LOG_MAX_SIZE="{{ ids_log_max_size }}"
+LOG_ROTATE="{{ ids_log_rotate_count }}"
+
+# Monitoring intervals (seconds)
+CHECK_INTERVAL="{{ ids_check_interval }}"
+BASELINE_INTERVAL="{{ ids_baseline_interval }}"
+
+# Performance
+MAX_PARALLEL_CHECKS="{{ ids_performance.max_parallel_checks }}"
+CHECK_TIMEOUT="{{ ids_performance.check_timeout }}"
+CACHE_ENABLED="{{ ids_performance.cache_enabled | lower }}"
+CACHE_TTL="{{ ids_performance.cache_ttl }}"
+
+# Alert settings
+ALERT_ENABLED="{{ ids_alert_enabled | lower }}"
+ALERT_WEBHOOK="{{ ids_alert_webhook | default('') }}"
+ALERT_EMAIL="{{ ids_alert_email | default('') }}"
+ALERT_THROTTLE=300  # Minimum seconds between duplicate alerts
+
+# System thresholds
+CPU_WARNING="{{ ids_thresholds.cpu_warning }}"
+CPU_CRITICAL="{{ ids_thresholds.cpu_critical }}"
+MEM_WARNING="{{ ids_thresholds.memory_warning }}"
+MEM_CRITICAL="{{ ids_thresholds.memory_critical }}"
+DISK_WARNING="{{ ids_thresholds.disk_warning }}"
+DISK_CRITICAL="{{ ids_thresholds.disk_critical }}"
+LOAD_WARNING="{{ ids_thresholds.load_warning }}"
+LOAD_CRITICAL="{{ ids_thresholds.load_critical }}"
+
+# Security thresholds
+FAILED_LOGIN_THRESHOLD="{{ ids_thresholds.failed_login_threshold }}"
+PORT_SCAN_THRESHOLD="{{ ids_thresholds.port_scan_threshold }}"
+FILE_CHANGE_THRESHOLD="{{ ids_thresholds.file_change_threshold }}"
+
+# Check modules
+{% for check, config in ids_checks.items() %}
+CHECK_{{ check | upper }}_ENABLED="{{ config.enabled | lower }}"
+CHECK_{{ check | upper }}_INTERVAL="{{ config.interval }}"
+CHECK_{{ check | upper }}_PRIORITY="{{ config.priority }}"
+{% endfor %}
+
+# Baseline configuration
+BASELINE_AUTO_UPDATE="{{ ids_baseline.auto_update | lower }}"
+BASELINE_UPDATE_SCHEDULE="{{ ids_baseline.update_schedule }}"
+BASELINE_EXCLUSIONS="{{ ids_baseline.exclusions | join(':') }}"
+
+# Environment detection
+OS_FAMILY="{{ ansible_os_family }}"
+OS_DISTRIBUTION="{{ ansible_distribution }}"
+OS_VERSION="{{ ansible_distribution_version }}"
+HOSTNAME="{{ ansible_hostname }}"
+FQDN="{{ ansible_fqdn }}"
+
+# Role-specific settings
+IDS_ROLE="{{ ids_role | default('default') }}"
+ENVIRONMENT="{{ environment | default('production') }}"
+
+# Debug settings
+DEBUG_ENABLED="{{ ids_debug_enabled | default(false) | lower }}"
+VERBOSE_LOGGING="{{ ids_verbose_logging | default(false) | lower }}"
+
+# Export all variables
+export IDS_HOME IDS_LOG IDS_CONFIG IDS_LIB
+export LOG_LEVEL LOG_FORMAT LOG_MAX_SIZE LOG_ROTATE
+export CHECK_INTERVAL BASELINE_INTERVAL
+export ALERT_ENABLED ALERT_WEBHOOK ALERT_EMAIL

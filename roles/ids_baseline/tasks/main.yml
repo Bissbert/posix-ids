@@ -1,0 +1,53 @@
+---
+# Main tasks for ids_baseline role
+- name: Check for existing baseline
+  ansible.builtin.stat:
+    path: /var/lib/ids/baselines/current.baseline
+  register: existing_baseline
+  tags: [baseline]
+
+- name: Backup existing baseline
+  ansible.builtin.copy:
+    src: /var/lib/ids/baselines/current.baseline
+    dest: "/var/lib/ids/baselines/baseline_{{ ansible_date_time.epoch }}.backup"
+    remote_src: yes
+    owner: "{{ ids_user }}"
+    group: "{{ ids_group }}"
+    mode: "0640"
+  when: existing_baseline.stat.exists
+  tags: [baseline, backup]
+
+- name: Generate system baseline
+  ansible.builtin.shell: |
+    {{ ids_base_path }}/bin/baseline.sh --generate \
+      --output /var/lib/ids/baselines/current.baseline \
+      --exclude "{{ ids_baseline.exclusions | join(',') }}"
+  register: baseline_generation
+  changed_when: baseline_generation.rc == 0
+  tags: [baseline, generate]
+
+- name: Verify baseline integrity
+  ansible.builtin.shell: |
+    {{ ids_base_path }}/bin/baseline.sh --verify \
+      --baseline /var/lib/ids/baselines/current.baseline
+  register: baseline_verify
+  changed_when: false
+  failed_when: baseline_verify.rc > 1
+  tags: [baseline, verify]
+
+- name: Set baseline permissions
+  ansible.builtin.file:
+    path: /var/lib/ids/baselines/current.baseline
+    owner: "{{ ids_user }}"
+    group: "{{ ids_group }}"
+    mode: "0640"
+  tags: [baseline]
+
+- name: Create baseline metadata
+  ansible.builtin.template:
+    src: baseline-metadata.json.j2
+    dest: /var/lib/ids/baselines/metadata.json
+    owner: "{{ ids_user }}"
+    group: "{{ ids_group }}"
+    mode: "0644"
+  tags: [baseline, metadata]

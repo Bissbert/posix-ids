@@ -1,0 +1,54 @@
+---
+# Install system dependencies
+- name: Update package cache (Debian/Ubuntu)
+  ansible.builtin.apt:
+    update_cache: yes
+    cache_valid_time: 3600
+  when: ansible_os_family == "Debian"
+  tags: [dependencies]
+
+- name: Install common packages
+  ansible.builtin.package:
+    name: "{{ ids_packages_common }}"
+    state: present
+  tags: [dependencies]
+
+- name: Install Debian/Ubuntu specific packages
+  ansible.builtin.apt:
+    name: "{{ ids_packages_debian }}"
+    state: present
+  when: ansible_os_family == "Debian"
+  tags: [dependencies]
+
+- name: Install RHEL/CentOS/Rocky specific packages
+  ansible.builtin.yum:
+    name: "{{ ids_packages_redhat }}"
+    state: present
+  when: ansible_os_family == "RedHat"
+  tags: [dependencies]
+
+- name: Install Alpine specific packages
+  ansible.builtin.apk:
+    name: "{{ ids_packages_alpine }}"
+    state: present
+  when: ansible_os_family == "Alpine"
+  tags: [dependencies]
+
+- name: Ensure cron is installed for cron-based deployments
+  ansible.builtin.package:
+    name: "{{ 'cronie' if ansible_os_family == 'RedHat' else 'cron' }}"
+    state: present
+  when: ids_service_type == "cron"
+  tags: [dependencies]
+
+- name: Install optional monitoring tools
+  ansible.builtin.package:
+    name:
+      - iotop
+      - iftop
+      - htop
+      - tcpdump
+    state: present
+  when: ids_install_optional_tools | default(false)
+  ignore_errors: true
+  tags: [dependencies, optional]

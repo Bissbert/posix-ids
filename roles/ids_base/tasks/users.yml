@@ -1,0 +1,29 @@
+---
+# User and permission management
+- name: Create dedicated IDS user
+  ansible.builtin.user:
+    name: "{{ ids_service_user | default('ids') }}"
+    system: yes
+    shell: /bin/false
+    home: "{{ ids_base_path }}"
+    comment: "IDS Service User"
+    create_home: no
+  when: ids_dedicated_user | default(false)
+  tags: [users]
+
+- name: Create IDS admin group
+  ansible.builtin.group:
+    name: ids-admin
+    system: yes
+  tags: [users]
+
+- name: Add sudoers entry for IDS commands
+  ansible.builtin.template:
+    src: sudoers-ids.j2
+    dest: /etc/sudoers.d/ids
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+  when: ids_setup_sudoers | default(true)
+  tags: [users, sudo]

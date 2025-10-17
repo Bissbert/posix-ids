@@ -1,0 +1,8 @@
+# Managed by Ansible - IDS sudoers configuration
+# Allow IDS admin group to manage IDS
+%ids-admin ALL=(root) NOPASSWD: {{ ids_base_path }}/bin/*, /bin/systemctl * ids.service, /usr/bin/journalctl -u ids
+
+# Allow IDS service user to run specific commands if using dedicated user
+{% if ids_dedicated_user | default(false) %}
+{{ ids_service_user }} ALL=(root) NOPASSWD: /usr/bin/netstat, /usr/bin/ss, /bin/ps, /usr/bin/lsof, /usr/sbin/iptables -L -n, /usr/sbin/ip6tables -L -n
+{% endif %}
