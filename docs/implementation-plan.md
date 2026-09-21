@@ -1,5 +1,23 @@
 # Linux Intrusion Detection System Implementation Plan
 
+[← back to the overview](../README.md)
+
+> Scope note: this is a design plan, not an inventory of implemented checks.
+> For the behavior in the current shell code, see the
+> [detection pipeline](detection-pipeline.md).
+
+```mermaid
+flowchart LR
+    P["planned coverage"] --> Q["current implementation"]
+    Q --> D["verified coverage table"]
+    P -. "may be broader" .-> N["do not infer a detection"]
+
+    style P fill:#9e6a03,stroke:#d29922,color:#fff
+    style Q fill:#1f6feb,stroke:#58a6ff,color:#fff
+    style D fill:#238636,stroke:#3fb950,color:#fff
+    style N fill:#da3633,stroke:#f85149,color:#fff
+```
+
 ## Executive Summary
 This document outlines a comprehensive intrusion detection system for Linux servers using minimal resources and POSIX-compliant tools, optimized for Splunk ingestion.
 

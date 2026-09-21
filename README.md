@@ -1,258 +1,148 @@
 # POSIX Linux Intrusion Detection System
 
-[![GitHub](https://img.shields.io/badge/GitHub-posix--ids-blue)](https://github.com/Bissbert/posix-ids)
-[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
-[![POSIX](https://img.shields.io/badge/POSIX-Compliant-brightgreen)](docs/implementation-plan.md)
+`posix-ids` is a set of POSIX shell scripts for checking a Linux host for
+authentication anomalies, file and process changes, resource pressure, and
+selected network and configuration changes. The monitor keeps small state
+snapshots, writes newline-delimited JSON, and has a separate alert router for
+webhooks, email, and syslog. The repository also contains Ansible deployment
+scaffolding and Splunk configuration; those integration paths are described as
+they exist, including the mismatches recorded in
+[`docs/BUGS-FOUND.md`](docs/BUGS-FOUND.md).
 
-A lightweight, POSIX-compliant intrusion detection system for Linux servers with minimal dependencies and Splunk integration.
+```mermaid
+flowchart LR
+    H["Linux host<br/>logs, /proc, netstat,<br/>files and services"] --> M["bin/monitor.sh<br/>one-shot or daemon"]
+    M --> S["state snapshots<br/>/var/log/ids/state"]
+    M --> J["newline-delimited JSON<br/>/var/log/ids/alerts.json"]
+    J --> A["bin/alert.sh<br/>tail or recent records"]
+    A --> D["webhook, email or syslog"]
 
-## Installation Options
-
-### Option 1: Manual Installation
-```bash
-# Clone the repository
-git clone https://github.com/Bissbert/posix-ids.git
-cd posix-ids
-
-# Run setup
-sudo ./bin/setup.sh
+    style M fill:#1f6feb,stroke:#58a6ff,color:#fff
+    style J fill:#238636,stroke:#3fb950,color:#fff
+    style D fill:#8250df,stroke:#bc8cff,color:#fff
 ```
 
-### Option 2: Ansible Deployment (Recommended for multiple servers)
-```bash
-# Clone the repository
-git clone https://github.com/Bissbert/posix-ids.git
-cd posix-ids
+## Quick start
 
-# Install Ansible requirements
-ansible-galaxy collection install -r collections/requirements.yml
+These commands are the verified source-level and container-level entry points:
 
-# Deploy to all servers in inventory
-ansible-playbook -i inventory/production playbooks/site.yml
+```sh
+# Check every tracked shell script and list the monitor checks.
+sh tools/measure.sh
+
+# Show the two directly runnable command interfaces.
+sh bin/monitor.sh -h
+sh bin/alert.sh -h
+
+# Run the monitor against harmless artefacts in a disposable Debian container.
+sh tools/container_run.sh
 ```
 
-## Quick Start
+The container harness installs only its measurement utilities inside the
+throwaway container. It creates an isolated baseline, runs a cold pass, adds
+test artefacts, and runs a warm pass. It does not install anything on the host.
+The host installer is not presented as a working quick start because
+`bin/setup.sh` currently names files that are not in `bin/`; see
+[`docs/BUGS-FOUND.md`](docs/BUGS-FOUND.md).
 
-```bash
-# 1. Run setup (automatically installs and starts monitoring)
-sudo ./bin/setup.sh
+## Architecture
 
-# 2. Check it's working
-sudo tail -f /var/log/ids/alerts.json
+The monitor is a single POSIX shell process. Each check reads its source, may
+compare it with a state snapshot, and calls one JSON logging function. The
+alert script is a separate process; the monitor does not invoke it.
 
-# 3. Optional: Configure alerts
-sudo vi /etc/ids/ids.conf
+```mermaid
+flowchart TD
+    C["configuration<br/>config/ids.conf"] --> R["run_checks()"]
+    I["host inputs<br/>auth logs, /proc, netstat,<br/>files, df, services"] --> R
+    R --> K["sixteen check functions"]
+    K --> Q{"finding?"}
+    Q -- "no" --> T["update state<br/>and finish pass"]
+    Q -- "yes" --> L["log_alert()"]
+    L --> F["alerts.json<br/>one JSON object per line"]
+    L --> Y["optional logger"]
+    F --> X["alert.sh"]
+    X --> W["curl or wget webhook"]
+    X --> E["mail, sendmail or mailx"]
+    X --> Z["logger, nc or telnet"]
+
+    style R fill:#1f6feb,stroke:#58a6ff,color:#fff
+    style L fill:#238636,stroke:#3fb950,color:#fff
+    style Q fill:#9e6a03,stroke:#d29922,color:#fff
+    style X fill:#8250df,stroke:#bc8cff,color:#fff
 ```
 
-That's it! The system is now monitoring for intrusions.
+The monitor runs once with `-1`, continuously in its default loop, or in
+daemon mode with `-d`. Its configured default interval is 60 seconds, but the
+current code does not apply a real-time filter to the authentication log
+counts; it uses fixed line counts instead.
 
-## Project Structure
+## Capability table
 
-```
-.
-├── bin/                # Executable scripts
-│   ├── monitor.sh      # Main monitoring engine
-│   ├── baseline.sh     # System baseline generator
-│   ├── alert.sh        # Real-time alerting system
-│   └── setup.sh        # Installation script
-├── config/             # Configuration files
-│   └── ids.conf        # Main configuration
-├── splunk/             # Splunk integration
-│   ├── inputs.conf     # Data collection config
-│   ├── props.conf      # Field extraction rules
-│   ├── savedsearches.conf  # Pre-built alerts
-│   └── dashboard.xml   # Security dashboard
-├── tests/              # Testing suite
-│   └── test.sh         # System validation
-└── docs/               # Documentation
-    ├── INSTALLATION.md # Detailed setup guide
-    └── implementation-plan.md  # Technical details
-```
+| Area | Implemented coverage | Severity emitted |
+|---|---|---|
+| Network | Current `netstat` connections: possible port scan and non-whitelisted remote ports | high / medium |
+| Authentication | Failed SSH/authentication lines, excessive failures, new `/etc/passwd` users, and sudo line counts | critical / high / medium |
+| Filesystem | Critical-file checksums, new SUID/SGID files in selected system directories, and PHP webshell patterns | critical / high |
+| Processes | Miner-name matches, `/proc` versus `ps` PID differences, and deleted executable links | critical / high |
+| Resources | CPU, memory, disk, and process-count thresholds | medium / high |
+| Configuration | Selected SSH settings, cron snapshots, and newly observed running services | high / medium |
+| Alert routing | Newline-delimited JSON plus optional webhook, email, and syslog delivery | configured by caller |
+| Splunk | Configuration files for inputs, JSON parsing, saved searches, and a dashboard | intent only; see limitations |
 
-## What It Detects
+The exact input, predicate, state file, and blind spot for every check are in
+[`docs/detection-pipeline.md`](docs/detection-pipeline.md).
 
-### Active Threats
-- **Brute force attacks** - SSH/login attempts
-- **Port scanning** - Network reconnaissance
-- **Cryptominers** - Unauthorized mining processes
-- **Web shells** - Backdoor scripts
-- **Privilege escalation** - Unauthorized sudo/su
+## Measured results
 
-### System Changes
-- **File integrity** - Modified system binaries
-- **User accounts** - New/modified users
-- **Configuration** - SSH, cron, firewall changes
-- **SUID/SGID files** - Permission escalations
+The repository measurement script reported 73606 bytes of implementation shell
+and Jinja source, 16 monitor check functions, and passing shell syntax checks.
+Those values come from `sh tools/measure.sh`.
 
-### Resource Abuse
-- **CPU/Memory spikes** - DoS attacks
-- **Disk exhaustion** - Space filling attacks
-- **Network floods** - Bandwidth abuse
-- **Fork bombs** - Process explosions
+The disposable-container run used Debian GNU/Linux 12 with `dash`, installed
+`procps` and `net-tools`, and ran the checked-in monitor directly. Its warm
+pass exited with status 0 and wrote 13 alert records for the planted artefacts.
+The measured wall-clock delta for that pass was 257238750 nanoseconds. This is
+one container run, not a performance guarantee.
 
-## Key Features
+| Command | Result |
+|---|---|
+| `sh tools/measure.sh` | 73606 implementation shell/Jinja bytes; 16 checks; syntax pass |
+| `sh bin/monitor.sh -h` | help displayed |
+| `sh bin/alert.sh -h` | help displayed |
+| `sh tools/container_run.sh` | warm pass exit 0; 13 JSON alerts; 257238750 ns wall delta |
 
-✅ **100% POSIX Compliant** - Works on any Unix/Linux system
-✅ **Minimal Dependencies** - Uses only basic Unix utilities
-✅ **Low Resource Usage** - <50MB RAM, <5% CPU
-✅ **Splunk Ready** - JSON logs optimized for SIEM
-✅ **Real-time Alerts** - Webhook, email, syslog support
-✅ **Auto-response** - Block IPs, kill processes
+## Repository layout
 
-## Commands
-
-```bash
-# Manual scan (one-time check)
-sudo /opt/ids/monitor.sh -1
-
-# Start monitoring service
-sudo systemctl start ids-monitor
-
-# View real-time alerts
-sudo /opt/ids/alert.sh -t
-
-# Update system baseline
-sudo /opt/ids/baseline.sh
-
-# Test the system
-sudo /opt/ids/tests/test.sh
-
-# Configure alerts (webhook example)
-sudo /opt/ids/alert.sh -w https://hooks.slack.com/YOUR_WEBHOOK
+```text
+bin/                    monitor, baseline, alert and setup shell scripts
+config/                 runtime configuration
+roles/                  Ansible role tasks and Jinja templates
+playbooks/              Ansible deployment and maintenance playbooks
+inventory/              staging and production inventory examples
+splunk/                 Splunk inputs, field parsing, searches and dashboard
+tests/                  installation-oriented shell test script
+examples/               Ansible deployment and maintenance examples
+docs/                   graphical overview, subsystem write-ups and measurements
+tools/                  measurement harnesses used by this documentation pass
 ```
 
-## Configuration
+## Known limitations
 
-Edit `/etc/ids/ids.conf` to customize:
-- Alert thresholds
-- Check frequencies
-- Log locations
-- Alert destinations
-
-Example settings:
-```bash
-BRUTE_FORCE_THRESHOLD=5      # Failed logins before alert
-PORT_SCAN_THRESHOLD=10        # Ports/min before alert
-CPU_THRESHOLD=80              # CPU % before alert
-CHECK_INTERVAL=60             # Seconds between checks
-```
-
-## Splunk Integration
-
-1. **Install Splunk Universal Forwarder**
-2. **Copy Splunk configs:**
-   ```bash
-   cp splunk/* $SPLUNK_HOME/etc/system/local/
-   ```
-3. **Restart Splunk:**
-   ```bash
-   $SPLUNK_HOME/bin/splunk restart
-   ```
-4. **Import dashboard:**
-   - Log into Splunk Web
-   - Settings → Dashboards → Create New
-   - Import `splunk/dashboard.xml`
-
-## Alert Examples
-
-### Slack Webhook
-```bash
-sudo /opt/ids/alert.sh -w https://hooks.slack.com/services/XXX
-```
-
-### Email Alerts
-```bash
-echo "admin@company.com" > /etc/ids/alert_email.conf
-```
-
-### Syslog Forward
-```bash
-echo "siem.company.com:514" > /etc/ids/syslog.conf
-```
-
-## Performance
-
-| Metric | Usage |
-|--------|-------|
-| CPU | < 5% average |
-| Memory | < 50MB |
-| Disk I/O | Minimal |
-| Network | None |
-
-## Security Levels
-
-| Severity | Response Time | Auto-action |
-|----------|---------------|-------------|
-| Critical | Immediate | Block IP, kill process |
-| High | < 5 min | Alert only |
-| Medium | < 15 min | Log only |
-| Low | Daily review | Log only |
-
-## Troubleshooting
-
-```bash
-# Check if monitoring is running
-ps aux | grep ids-monitor
-
-# View recent detections
-tail -100 /var/log/ids/alerts.json | jq .
-
-# Debug mode
-sh -x /opt/ids/monitor.sh
-
-# Check installation
-/opt/ids/tests/test.sh
-```
-
-## Requirements
-
-- POSIX shell (sh/dash/ash)
-- Basic Unix tools (awk, sed, grep, ps, netstat)
-- Root/sudo access
-- 50MB free disk space
-
-## Compatibility
-
-Tested on:
-- Ubuntu/Debian
-- RHEL/CentOS
-- Alpine Linux
-- BusyBox systems
-- Minimal containers
-
-## Ansible Deployment
-
-Deploy to multiple servers with one command:
-
-```bash
-# Deploy to staging
-ansible-playbook -i inventory/staging playbooks/site.yml
-
-# Deploy to specific hosts
-ansible-playbook -i inventory/production playbooks/deploy.yml --limit web-servers
-
-# Update existing installations
-ansible-playbook -i inventory/production playbooks/update.yml
-
-# Generate new baselines
-ansible-playbook -i inventory/production playbooks/baseline.yml
-```
-
-See [README_ANSIBLE.md](README_ANSIBLE.md) for detailed Ansible documentation.
-
-## Support
-
-- 📖 [Detailed Installation](docs/INSTALLATION.md)
-- 📋 [Implementation Plan](docs/implementation-plan.md)
-- 🚀 [Ansible Deployment Guide](README_ANSIBLE.md)
-- 🧪 Run `tests/test.sh` to validate setup
-- 📊 Check `/var/log/ids/` for logs
-- 🐛 [Report Issues](https://github.com/Bissbert/posix-ids/issues)
-
-## License
-
-Open source - Use for defensive security only.
-
----
-
-**⚠️ Security Notice**: This is a detection system, not prevention. Deploy alongside firewalls, access controls, and incident response procedures.
+- The host installer stops on its first missing script name. The documented
+  container path invokes `monitor.sh` directly and does not claim to validate
+  installation.
+- The baseline generator and monitor use different paths and formats, so a
+  baseline generated by `bin/baseline.sh` is not the baseline input that
+  `bin/monitor.sh` reads.
+- Authentication thresholds operate on the last fixed number of log lines, not
+  timestamps. Port-scan detection is a snapshot of current `netstat` output,
+  not a historical connection window.
+- The Splunk files currently point at paths and schemas that do not match the
+  monitor's `alerts.json` records. Splunk was not run in this pass.
+- The Ansible graph references absent roles, task files, templates and
+  unsupported baseline options. No remote host was contacted.
+- The monitor depends on host tools and permissions, including `/proc`,
+  `netstat` or equivalent availability, readable authentication logs, and
+  access to the watched paths. The container harness installs only the tools it
+  needs for its own isolated run.

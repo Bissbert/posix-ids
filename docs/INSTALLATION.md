@@ -1,5 +1,25 @@
 # Linux IDS Installation and Setup Guide
 
+[← back to the overview](../README.md)
+
+> Legacy note: this guide describes an earlier installation layout and is not
+> a verified procedure for the current checkout. The current script names,
+> data flow and known defects are documented in the [overview](../README.md),
+> [baseline write-up](baseline-and-operation.md) and
+> [bug log](BUGS-FOUND.md).
+
+```mermaid
+flowchart LR
+    G["historical guide"] --> U["not verified against<br/>the current checkout"]
+    U --> C["use the measured<br/>container path"]
+    U --> D["read current<br/>operation notes"]
+
+    style G fill:#9e6a03,stroke:#d29922,color:#fff
+    style U fill:#da3633,stroke:#f85149,color:#fff
+    style C fill:#238636,stroke:#3fb950,color:#fff
+    style D fill:#1f6feb,stroke:#58a6ff,color:#fff
+```
+
 ## Overview
 This intrusion detection system provides comprehensive monitoring for Linux servers using minimal resources and POSIX-compliant tools. It's designed for easy integration with Splunk SIEM.
 

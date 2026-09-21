@@ -1,10 +1,20 @@
 # POSIX IDS - Ansible Deployment Automation
 
-Complete Ansible automation for deploying a POSIX-compliant Linux Intrusion Detection System across your infrastructure.
+> Verification note: this document describes the intended Ansible layout, not
+> a verified deployment of the current checkout. The current role graph and
+> missing references are documented in
+> [`docs/ansible-deployment.md`](docs/ansible-deployment.md) and
+> [`docs/BUGS-FOUND.md`](docs/BUGS-FOUND.md).
+
+Ansible automation scaffolding for deploying a POSIX-compliant Linux Intrusion
+Detection System across an infrastructure.
 
 ## Overview
 
-This Ansible automation provides production-ready deployment, management, and maintenance of the POSIX IDS across heterogeneous Linux environments. It supports multiple distributions, service managers, and deployment scenarios with full idempotency and rollback capabilities.
+This document describes the intended deployment, management, and maintenance
+shape across heterogeneous Linux environments. The current role graph is not
+verified end to end; see the source-backed deployment write-up for its actual
+boundaries.
 
 ## Features
 
