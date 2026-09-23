@@ -9,11 +9,13 @@ export LC_ALL=C
 
 CONFIG="/etc/ids/ids_config.conf"
 SAFE_MODE=1
+passed=0
+failed=0
 
 err() { printf '[ERROR] %s\n' "$*" >&2; }
 info() { printf '[TEST] %s\n' "$*"; }
-pass() { printf '[PASS] %s\n' "$*"; }
-fail() { printf '[FAIL] %s\n' "$*"; }
+pass() { passed=$((passed + 1)); printf '[PASS] %s\n' "$*"; }
+fail() { failed=$((failed + 1)); printf '[FAIL] %s\n' "$*"; }
 
 usage() {
     cat <<'USAGE'
@@ -213,8 +215,6 @@ info "Test Summary"
 info "============"
 
 total_tests=10
-passed=$(grep -c '^\[PASS\]' "$0" 2>/dev/null || printf "0")
-failed=$(grep -c '^\[FAIL\]' "$0" 2>/dev/null || printf "0")
 
 info "Tests run: $total_tests"
 info "Passed: $passed"
