@@ -119,9 +119,9 @@ install_script() {
 info ""
 info "Installing IDS scripts..."
 script_dir=$(dirname "$0")
-install_script "$script_dir/ids_monitor.sh" "$PREFIX/bin/ids_monitor" 755
-install_script "$script_dir/generate_baseline.sh" "$PREFIX/bin/ids_baseline" 755
-install_script "$script_dir/ids_alert.sh" "$PREFIX/bin/ids_alert" 755
+install_script "$script_dir/monitor.sh" "$PREFIX/bin/ids_monitor" 755
+install_script "$script_dir/baseline.sh" "$PREFIX/bin/ids_baseline" 755
+install_script "$script_dir/alert.sh" "$PREFIX/bin/ids_alert" 755
 
 # Install configuration
 info ""
@@ -135,7 +135,7 @@ else
     fi
 
     # Update paths in configuration
-    sed "s|/var/log/ids|/var/log/ids|g" "$script_dir/ids_config.conf" > "$CONFIG_DIR/ids_config.conf"
+    sed "s|/var/log/ids|/var/log/ids|g" "$script_dir/../config/ids.conf" > "$CONFIG_DIR/ids_config.conf"
     chmod 640 "$CONFIG_DIR/ids_config.conf"
     chown "${IDS_USER}:${IDS_GROUP}" "$CONFIG_DIR/ids_config.conf"
     info "Installed: $CONFIG_DIR/ids_config.conf"
