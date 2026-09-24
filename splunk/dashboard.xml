@@ -41,7 +41,7 @@
       <title>Affected Hosts</title>
       <single>
         <search>
-          <query>index=security sourcetype=linux_ids earliest=-24h | stats dc(host)</query>
+          <query>index=security sourcetype=linux_ids earliest=-24h | stats dc(hostname)</query>
           <earliest>-24h</earliest>
           <latest>now</latest>
         </search>
@@ -98,7 +98,7 @@
       <chart>
         <search>
           <query>index=security sourcetype=linux_ids earliest=-24h
-          | stats count by event_type
+          | stats count by category
           | sort -count
           | head 10</query>
           <earliest>-24h</earliest>
@@ -113,9 +113,9 @@
       <title>Attack Sources (Network Threats)</title>
       <chart>
         <search>
-          <query>index=security sourcetype=linux_ids event_type=network_threat earliest=-24h
-          | rex field=details "\"source_ip\":\"(?&lt;src_ip&gt;[^\"]+)\""
-          | stats count by src_ip
+          <query>index=security sourcetype=linux_ids category=network OR description="Brute force attack detected" earliest=-24h
+          | where isnotnull(src)
+          | stats count by src
           | sort -count
           | head 10</query>
           <earliest>-24h</earliest>
@@ -133,10 +133,8 @@
       <title>Authentication Anomalies</title>
       <table>
         <search>
-          <query>index=security sourcetype=linux_ids event_type=authentication earliest=-24h
-          | rex field=details "\"username\":\"(?&lt;user&gt;[^\"]+)\""
-          | rex field=details "\"source_ip\":\"(?&lt;src&gt;[^\"]+)\""
-          | table _time, host, user, src, description, severity
+          <query>index=security sourcetype=linux_ids category=authentication earliest=-24h
+          | table _time, hostname, user, src, description, details, severity
           | sort -_time</query>
           <earliest>-24h</earliest>
           <latest>now</latest>
@@ -153,10 +151,8 @@
       <title>File Integrity Violations</title>
       <table>
         <search>
-          <query>index=security sourcetype=linux_ids event_type=file_integrity earliest=-24h
-          | rex field=details "\"file_path\":\"(?&lt;file&gt;[^\"]+)\""
-          | rex field=details "\"action\":\"(?&lt;action&gt;[^\"]+)\""
-          | table _time, host, file, action, severity
+          <query>index=security sourcetype=linux_ids category=filesystem earliest=-24h
+          | table _time, hostname, file_path, description, severity
           | sort -_time</query>
           <earliest>-24h</earliest>
           <latest>now</latest>
@@ -172,11 +168,8 @@
       <title>Suspicious Processes</title>
       <table>
         <search>
-          <query>index=security sourcetype=linux_ids event_type=process earliest=-24h
-          | rex field=details "\"name\":\"(?&lt;proc_name&gt;[^\"]+)\""
-          | rex field=details "\"pid\":\"?(?&lt;pid&gt;[0-9]+)\"?"
-          | rex field=details "\"user\":\"(?&lt;user&gt;[^\"]+)\""
-          | table _time, host, proc_name, pid, user, description
+          <query>index=security sourcetype=linux_ids category=process earliest=-24h
+          | table _time, hostname, process, pid, description
           | sort -_time</query>
           <earliest>-24h</earliest>
           <latest>now</latest>
@@ -192,9 +185,8 @@
       <title>Resource Usage Alerts</title>
       <chart>
         <search>
-          <query>index=security sourcetype=linux_ids event_type=resource earliest=-24h
-          | rex field=details "\"(cpu|memory|disk)_percent\":(?&lt;usage&gt;[0-9]+)"
-          | timechart span=30m max(usage) as max_usage avg(usage) as avg_usage</query>
+          <query>index=security sourcetype=linux_ids category=resources earliest=-24h
+          | timechart span=30m max(usage_percent) as max_usage avg(usage_percent) as avg_usage</query>
           <earliest>-24h</earliest>
           <latest>now</latest>
         </search>
@@ -209,8 +201,8 @@
       <title>Network Traffic Anomalies</title>
       <chart>
         <search>
-          <query>index=security sourcetype=linux_ids threat_category=c2_communication OR threat_category=port_scan earliest=-24h
-          | timechart span=1h count by threat_category</query>
+          <query>index=security sourcetype=linux_ids category=network earliest=-24h
+          | timechart span=1h count by description</query>
           <earliest>-24h</earliest>
           <latest>now</latest>
         </search>
@@ -227,7 +219,7 @@
       <table>
         <search>
           <query>index=security sourcetype=linux_ids severity=critical
-          | table _time, host, event_type, description, details
+          | table _time, hostname, category, description, details
           | sort -_time</query>
           <earliest>rt-5m</earliest>
           <latest>rt</latest>
@@ -247,7 +239,7 @@
         <search>
           <query>index=security sourcetype=linux_ids earliest=-24h
           | eval score=case(severity="critical",100, severity="high",75, severity="medium",50, severity="low",25, 1=1, 0)
-          | stats sum(score) as total_score, count as event_count, values(event_type) as threat_types by host
+          | stats sum(score) as total_score, count as event_count, values(category) as threat_types by hostname
           | eval risk_level=case(total_score>500,"CRITICAL", total_score>200,"HIGH", total_score>50,"MEDIUM", 1=1, "LOW")
           | sort -total_score</query>
           <earliest>-24h</earliest>
