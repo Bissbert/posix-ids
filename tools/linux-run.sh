@@ -7,6 +7,8 @@
 # script and the baseline generator write system paths, so they only ever run
 # inside a disposable debian:12-slim container. tools/container_run.sh then
 # runs the monitor end to end in a second container.
+#
+# The regression suite is separate: sh tests/docker.sh
 
 set -eu
 IMAGE=debian:12-slim
@@ -60,16 +62,19 @@ section "tests/test.sh with one earlier record in alerts.json"
 echo '{"severity":"low","category":"seed","description":"earlier record"}' > /var/log/ids/alerts.json
 run_tests
 
-section "open: baseline producer and monitor input"
-grep -n '^BASELINE_FILE' config/ids.conf
-printf '/var/lib/ids/baseline (baseline.sh writes): '
-[ -d /var/lib/ids/baseline ] && echo "present, $(find /var/lib/ids/baseline -type f | wc -l) files" || echo absent
+section "baseline producer and monitor input"
+grep -n '^BASELINE_FILE' /etc/ids/ids_config.conf
+sh bin/baseline.sh -c /etc/ids/ids_config.conf -n; echo "baseline.sh -n  exit=$?"
 printf '/var/log/ids/baseline.dat (monitor.sh reads): '
-[ -f /var/log/ids/baseline.dat ] && echo present || echo absent
+[ -f /var/log/ids/baseline.dat ] && echo "present, $(wc -l < /var/log/ids/baseline.dat) entries" || echo absent
+sh bin/baseline.sh -c /etc/ids/ids_config.conf -V >/dev/null; echo "baseline.sh -V (unchanged)  exit=$?"
 
-section "open: syslog priority built from an IDS severity"
-grep -n 'logger -t "ids"' bin/monitor.sh
-logger -p security.medium test; echo "logger -p security.medium  exit=$?"
+section "syslog priority built from an IDS severity"
+sed -n '/^syslog_priority()/,/^}/p' bin/monitor.sh
+for pri in auth.crit auth.err auth.warning auth.notice auth.info security.medium; do
+    logger --no-act --socket-errors=off -p "$pri" test 2>/dev/null
+    echo "logger -p $pri  exit=$?"
+done
 INNER
 
 printf '\n=== tools/container_run.sh\n'
