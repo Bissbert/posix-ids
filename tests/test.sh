@@ -80,15 +80,22 @@ fi
 
 # Test 3: Baseline existence
 info "Test 3: Baseline file check"
-if [ -f "/var/log/ids/baseline.dat" ]; then
-    size=$(wc -l < "/var/log/ids/baseline.dat")
-    if [ "$size" -gt 10 ]; then
-        pass "Baseline exists ($size lines)"
+# Read the two settings in a subshell so the configuration cannot change ours.
+baseline_file=$( . "$CONFIG" >/dev/null 2>&1; printf '%s' "${BASELINE_FILE:-/var/log/ids/baseline.dat}" ) || true
+critical_files=$( . "$CONFIG" >/dev/null 2>&1; printf '%s' "${CRITICAL_FILES:-}" ) || true
+if [ -f "$baseline_file" ]; then
+    missing=""
+    for file in $critical_files; do
+        [ -f "$file" ] || continue
+        grep -q "  $file\$" "$baseline_file" || missing="$missing $file"
+    done
+    if [ -z "$missing" ]; then
+        pass "Baseline covers the critical files ($baseline_file)"
     else
-        fail "Baseline too small ($size lines)"
+        fail "Baseline lacks:$missing"
     fi
 else
-    fail "Baseline missing - run ids_baseline first"
+    fail "Baseline missing - run ids_baseline -c $CONFIG first"
 fi
 
 # Test 4: Network monitoring
@@ -148,10 +155,16 @@ if [ "$SAFE_MODE" = "1" ]; then
     if printf '%s\n' "$test_alert" >> /var/log/ids/alerts.json 2>/dev/null; then
         pass "Alert writing successful"
 
-        # Remove test alert
-        if command -v sed >/dev/null 2>&1; then
-            cp /var/log/ids/alerts.json /var/log/ids/alerts.json.bak
-            grep -v "IDS test alert" /var/log/ids/alerts.json.bak > /var/log/ids/alerts.json
+        # Remove test alert. grep -v exits 1 when no other record is left,
+        # which is the normal case on a fresh install; only 2 is an error.
+        cp /var/log/ids/alerts.json /var/log/ids/alerts.json.bak
+        status=0
+        grep -v "IDS test alert" /var/log/ids/alerts.json.bak > /var/log/ids/alerts.json || status=$?
+        if [ "$status" -le 1 ]; then
+            rm -f /var/log/ids/alerts.json.bak
+        else
+            cp /var/log/ids/alerts.json.bak /var/log/ids/alerts.json
+            fail "Could not remove the test alert (backup: /var/log/ids/alerts.json.bak)"
         fi
     else
         fail "Cannot write alerts"
