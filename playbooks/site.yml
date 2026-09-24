@@ -14,61 +14,41 @@
           - "Deploying IDS version: {{ ids_version }}"
           - "Target host: {{ ansible_hostname }}"
           - "OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
-          - "Environment: {{ environment | default('production') }}"
+          - "Service type: {{ ids_service_type }}"
       tags: [always]
 
-    - name: Create deployment backup
-      ansible.builtin.include_tasks: ../tasks/backup.yml
-      when: backup_before_deploy | default(true)
-      tags: [backup]
-
-    - name: Pre-deployment validation
-      ansible.builtin.include_tasks: ../tasks/pre_validate.yml
-      when: pre_update_validation | default(true)
-      tags: [validate]
-
+  # The configuration goes in before the monitor role, whose validation
+  # runs the health check against it, and the baseline role reads the
+  # CRITICAL_FILES list from it.
   roles:
     - role: ids_base
       tags: [base, install]
 
-    - role: ids_monitor
-      tags: [monitor, install]
-
     - role: ids_config
       tags: [config]
 
-    - role: ids_alerts
-      tags: [alerts]
-      when: ids_alert_enabled | default(true)
+    - role: ids_monitor
+      tags: [monitor, install]
 
     - role: ids_baseline
       tags: [baseline]
 
-    - role: ids_splunk
-      tags: [splunk]
-      when: splunk_enabled | default(false)
-
   post_tasks:
-    - name: Post-deployment validation
-      ansible.builtin.include_tasks: ../tasks/post_validate.yml
-      when: post_update_validation | default(true)
+    - name: Start the IDS
+      ansible.builtin.include_role:
+        name: ids_monitor
+        tasks_from: start_service
+      when: ids_service_state == "started"
+      tags: [service]
+
+    - name: Run the health check
+      ansible.builtin.command: "{{ ids_base_path }}/bin/ids-healthcheck.sh"
+      register: health_check
+      changed_when: false
+      failed_when: health_check.rc > 1
       tags: [validate]
 
-    - name: Generate deployment report
-      ansible.builtin.include_tasks: ../tasks/report.yml
-      tags: [report]
-
-    - name: Send deployment notification
-      ansible.builtin.include_tasks: ../tasks/notify.yml
-      when: deployment_notifications | default(true)
-      tags: [notify]
-
-  handlers:
-    - name: restart ids
-      ansible.builtin.include_tasks: ../handlers/restart_ids.yml
-      listen: "restart ids"
-
-    - name: reload systemd
-      ansible.builtin.systemd:
-        daemon_reload: yes
-      listen: "reload systemd"
+    - name: Display health check results
+      ansible.builtin.debug:
+        var: health_check.stdout_lines
+      tags: [validate]

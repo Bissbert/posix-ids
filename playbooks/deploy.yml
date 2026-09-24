@@ -29,17 +29,21 @@
     - name: Install IDS base
       ansible.builtin.include_role:
         name: ids_base
+        # public: later roles use its defaults (ids_check_interval, paths)
+        public: true
       tags: [base]
+
+    - name: Apply configuration
+      ansible.builtin.include_role:
+        name: ids_config
+        # public: later roles use its defaults (ids_check_interval, paths)
+        public: true
+      tags: [config]
 
     - name: Deploy monitoring scripts
       ansible.builtin.include_role:
         name: ids_monitor
       tags: [monitor]
-
-    - name: Apply configuration
-      ansible.builtin.include_role:
-        name: ids_config
-      tags: [config]
 
     - name: Generate initial baseline
       ansible.builtin.include_role:
@@ -48,11 +52,10 @@
       tags: [baseline]
 
     - name: Start IDS service
-      ansible.builtin.systemd:
-        name: ids.service
-        state: started
-        enabled: yes
-      when: ids_service_type == "systemd"
+      ansible.builtin.include_role:
+        name: ids_monitor
+        tasks_from: start_service
+      when: ids_service_state == "started"
       tags: [service]
 
   post_tasks:

@@ -3,7 +3,8 @@
 #
 # The IDS only does anything interesting on Linux: it reads /proc, /var/log/auth.log
 # and netstat output.  This script boots a Debian container, prepares the checked-in
-# monitor with an isolated configuration and baseline, plants harmless artefacts,
+# monitor with the checked-in configuration and a baseline from baseline.sh,
+# plants harmless artefacts,
 # runs two passes, and prints the resulting alert records.
 #
 # Requires: docker and network access for the package install.  Everything else
@@ -44,18 +45,13 @@ cp -r /src /ids && cd /ids
 section "preparing the checked-in monitor"
 mkdir -p /var/log/ids/state /var/www /usr/local/bin /etc/ssh
 printf 'Port 22\nPermitRootLogin no\n' > /etc/ssh/sshd_config
-# The container has no syslog facility named "security.medium".  Disable that
-# optional sink so an alert does not turn into a logger error during the run.
-sed 's/^ALERT_TO_SYSLOG=1/ALERT_TO_SYSLOG=0/' \
-    /src/config/ids.conf > /tmp/ids_config.conf
+# The checked-in configuration, unchanged. Syslog output stays on; the
+# container runs no syslog daemon, so logger discards the messages.
+cp /src/config/ids.conf /tmp/ids_config.conf
 
-# monitor.sh expects a flat SHA-256 baseline at this path.  The checked-in
-# baseline.sh creates a different directory-shaped MD5 baseline, so construct
-# the exact input its file-integrity check consumes for this measurement.
-: > /var/log/ids/baseline.dat
-for file in /etc/passwd /etc/shadow /etc/sudoers /etc/ssh/sshd_config; do
-    [ -f "$file" ] && sha256sum "$file" >> /var/log/ids/baseline.dat
-done
+# The monitor baseline comes from the checked-in generator.
+sh /src/bin/baseline.sh -c /tmp/ids_config.conf -n
+echo "baseline: $(grep -vc "^#" /var/log/ids/baseline.dat) entries in /var/log/ids/baseline.dat"
 
 section "monitor syntax"
 sh -n /src/bin/monitor.sh
@@ -66,20 +62,25 @@ sh /src/bin/monitor.sh -c /tmp/ids_config.conf -1 2>&1 | sed 's/^/  /'
 echo "alerts after pass 1: $(wc -l < /var/log/ids/alerts.json)"
 
 section "planting artefacts the checks are supposed to notice"
-# 1. brute force + failed logins: 12 failed SSH passwords from one address
+# 1. brute force + failed logins. The checks count lines inside AUTH_WINDOW
+# and SUDO_WINDOW, so the same attack dated two days back must not alert.
+old=$(date -d '2 days ago' '+%b %e %H:%M:%S')
+now=$(date '+%b %e %H:%M:%S')
 i=0; while [ $i -lt 12 ]; do
-    printf 'Jan  1 00:00:%02d host sshd[100]: Failed password for root from 203.0.113.9 port 40000 ssh2\n' "$i"
-    printf 'Jan  1 00:00:%02d host sshd[100]: pam_unix(sshd:auth): authentication failure; rhost=203.0.113.9\n' "$i"
+    printf '%s host sshd[100]: Failed password for root from 198.51.100.4 port 40000 ssh2\n' "$old"
+    printf '%s host sshd[100]: Failed password for root from 203.0.113.9 port 40000 ssh2\n' "$now"
+    printf '%s host sshd[100]: pam_unix(sshd:auth): authentication failure; rhost=203.0.113.9\n' "$now"
     i=$((i + 1))
 done > /var/log/auth.log
-echo "  /var/log/auth.log         12 failed passwords from 203.0.113.9"
+echo "  /var/log/auth.log         12 failed passwords from 203.0.113.9 (now)"
+echo "  /var/log/auth.log         12 failed passwords from 198.51.100.4 (two days ago)"
 
 # 2. sudo anomaly: 15 sudo lines
 i=0; while [ $i -lt 15 ]; do
-    printf 'Jan  1 00:01:%02d host sudo:  root : COMMAND=/bin/ls\n' "$i"
+    printf '%s host sudo:  root : COMMAND=/bin/ls\n' "$now"
     i=$((i + 1))
 done >> /var/log/auth.log
-echo "  /var/log/auth.log         15 sudo invocations"
+echo "  /var/log/auth.log         15 sudo invocations (now)"
 
 # 3. webshell
 mkdir -p /var/www/html
@@ -142,8 +143,12 @@ fi
 
 section "runtime files used by the measurement"
 ls -l /var/log/ids/ /var/log/ids/state/ 2>/dev/null | sed 's/^/  /'
-echo "  baseline file monitor.sh looks for (/var/log/ids/baseline.dat):"
-[ -f /var/log/ids/baseline.dat ] && echo "    present" || echo "    ABSENT"
-echo "  baseline directory baseline.sh writes (/var/lib/ids/baseline):"
-[ -d /var/lib/ids/baseline ] && echo "    present, $(find /var/lib/ids/baseline -type f | wc -l) files" || echo "    ABSENT"
+
+section "baseline.sh -V after the planted changes"
+set +e
+sh /src/bin/baseline.sh -c /tmp/ids_config.conf -V > /tmp/verify.out
+rc=$?
+set -e
+sed 's/^/  /' /tmp/verify.out
+echo "  exit status: $rc"
 INNER

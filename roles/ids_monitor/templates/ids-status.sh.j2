@@ -2,9 +2,13 @@
 # Managed by Ansible - IDS Status Script
 # POSIX-compliant status reporting
 
-IDS_HOME="{{ ids_base_path }}"
+# IDS_BASE is the install directory. The configuration sets IDS_HOME to
+# the log and state directory, so the two must not share a name.
+IDS_BASE="{{ ids_base_path }}"
 IDS_CONFIG="{{ ids_config_path }}/ids.conf"
 IDS_LOG="{{ ids_log_path }}"
+BASELINE_FILE="{{ ids_baseline_file }}"
+ALERT_LOG="{{ ids_log_path }}/alerts.json"
 
 # Load configuration
 [ -f "$IDS_CONFIG" ] && . "$IDS_CONFIG"
@@ -17,12 +21,11 @@ echo "======================================"
 
 # Version information
 echo "\nVersion Information:"
-if [ -f "$IDS_HOME/VERSION" ]; then
-    echo "  IDS Version: $(cat "$IDS_HOME/VERSION")"
+if [ -f "$IDS_BASE/VERSION" ]; then
+    echo "  IDS Version: $(cat "$IDS_BASE/VERSION")"
 else
     echo "  IDS Version: Unknown"
 fi
-echo "  Environment: {{ environment | default('production') }}"
 echo "  Role: {{ ids_role | default('default') }}"
 
 # Service status
@@ -60,12 +63,12 @@ echo "  Log Level: {{ ids_log_level }}"
 
 # Baseline status
 echo "\nBaseline Status:"
-if [ -f /var/lib/ids/baselines/current.baseline ]; then
-    echo "  Current Baseline: $(ls -lh /var/lib/ids/baselines/current.baseline | awk '{print $5, $6, $7, $8}')"
-    baseline_age=$(($(date +%s) - $(stat -c %Y /var/lib/ids/baselines/current.baseline 2>/dev/null || stat -f %m /var/lib/ids/baselines/current.baseline)))
+if [ -f "$BASELINE_FILE" ]; then
+    echo "  Monitor Baseline: $BASELINE_FILE ($(grep -vc '^#' "$BASELINE_FILE") files)"
+    baseline_age=$(($(date +%s) - $(stat -c %Y "$BASELINE_FILE" 2>/dev/null || stat -f %m "$BASELINE_FILE")))
     echo "  Baseline Age: $((baseline_age / 86400)) days"
 else
-    echo "  Current Baseline: Not found"
+    echo "  Monitor Baseline: Not found ($BASELINE_FILE)"
 fi
 
 # Log information
@@ -74,19 +77,19 @@ if [ -d "$IDS_LOG" ]; then
     echo "  Log Directory: $IDS_LOG"
     echo "  Total Size: $(du -sh "$IDS_LOG" | awk '{print $1}')"
     echo "  Recent Logs:"
-    ls -lht "$IDS_LOG"/*.log 2>/dev/null | head -5 | awk '{print "    " $9 ": " $5}'
+    ls -lht "$IDS_LOG"/*.json "$IDS_LOG"/*.log 2>/dev/null | head -5 | awk '{print "    " $9 ": " $5}'
 else
     echo "  Log Directory: Not found"
 fi
 
 # Recent alerts
 echo "\nRecent Alerts:"
-if [ -f "$IDS_LOG/alerts.log" ]; then
-    alert_count=$(grep -c "ALERT" "$IDS_LOG/alerts.log" 2>/dev/null || echo "0")
+if [ -f "$ALERT_LOG" ]; then
+    alert_count=$(wc -l < "$ALERT_LOG" | tr -d ' ')
     echo "  Total Alerts: $alert_count"
     if [ "$alert_count" -gt 0 ]; then
         echo "  Last 5 Alerts:"
-        tail -5 "$IDS_LOG/alerts.log" | sed 's/^/    /'
+        tail -5 "$ALERT_LOG" | sed 's/^/    /'
     fi
 else
     echo "  No alert log found"

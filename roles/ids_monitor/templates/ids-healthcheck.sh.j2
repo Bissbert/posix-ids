@@ -4,9 +4,12 @@
 
 set -e
 
-IDS_HOME="{{ ids_base_path }}"
+# IDS_BASE is the install directory. The configuration sets IDS_HOME to
+# the log and state directory, so the two must not share a name.
+IDS_BASE="{{ ids_base_path }}"
 IDS_CONFIG="{{ ids_config_path }}/ids.conf"
 IDS_LOG="{{ ids_log_path }}"
+BASELINE_FILE="{{ ids_baseline_file }}"
 
 # Exit codes
 EXIT_OK=0
@@ -22,7 +25,7 @@ MESSAGES=""
 
 # Check functions
 check_directories() {
-    for dir in "$IDS_HOME" "$IDS_CONFIG" "$IDS_LOG"; do
+    for dir in "$IDS_BASE" "{{ ids_config_path }}" "$IDS_LOG"; do
         if [ ! -d "$dir" ]; then
             MESSAGES="$MESSAGES\nERROR: Directory missing: $dir"
             STATUS=$EXIT_CRITICAL
@@ -32,7 +35,7 @@ check_directories() {
 
 check_scripts() {
     for script in monitor.sh baseline.sh alert.sh; do
-        if [ ! -x "$IDS_HOME/bin/$script" ]; then
+        if [ ! -x "$IDS_BASE/bin/$script" ]; then
             MESSAGES="$MESSAGES\nERROR: Script not executable: $script"
             STATUS=$EXIT_CRITICAL
         fi
@@ -82,7 +85,7 @@ check_disk_space() {
 
 check_logs() {
     if [ -d "$IDS_LOG" ]; then
-        log_count=$(find "$IDS_LOG" -name "*.log" -type f 2>/dev/null | wc -l)
+        log_count=$(find "$IDS_LOG" \( -name "*.json" -o -name "*.log" \) -type f 2>/dev/null | wc -l)
         if [ "$log_count" -eq 0 ]; then
             MESSAGES="$MESSAGES\nWARNING: No log files found"
             [ $STATUS -eq $EXIT_OK ] && STATUS=$EXIT_WARNING
@@ -91,8 +94,8 @@ check_logs() {
 }
 
 check_baseline() {
-    if [ ! -f /var/lib/ids/baselines/current.baseline ]; then
-        MESSAGES="$MESSAGES\nWARNING: No current baseline found"
+    if [ ! -f "$BASELINE_FILE" ]; then
+        MESSAGES="$MESSAGES\nWARNING: No monitor baseline at $BASELINE_FILE"
         [ $STATUS -eq $EXIT_OK ] && STATUS=$EXIT_WARNING
     fi
 }

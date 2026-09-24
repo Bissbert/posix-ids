@@ -1,0 +1,16 @@
+---
+- name: Read monitor baseline details
+  ansible.builtin.stat:
+    path: "{{ ids_baseline_file }}"
+    checksum_algorithm: sha256
+  register: baseline_stat
+  tags: [baseline, metadata]
+
+- name: Create baseline metadata
+  ansible.builtin.template:
+    src: baseline-metadata.json.j2
+    dest: /var/lib/ids/baselines/metadata.json
+    owner: "{{ ids_user }}"
+    group: "{{ ids_group }}"
+    mode: "0644"
+  tags: [baseline, metadata]

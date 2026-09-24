@@ -1,6 +1,6 @@
 #!/bin/sh
 # Managed by Ansible - IDS Thresholds Configuration
-# Environment: {{ environment | default('production') }}
+# Reference values; monitor.sh reads its thresholds from ids.conf.
 
 # System Resource Thresholds
 THRESHOLD_CPU_WARNING="{{ ids_thresholds.cpu_warning }}"

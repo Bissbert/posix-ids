@@ -1,12 +1,13 @@
 #!/bin/sh
 # measure.sh - Repeatable repository and syntax measurements for the docs.
+# The byte count covers bin/, config/, roles/ and playbooks/, not tests/.
 
 set -eu
 
 REPO=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$REPO"
 
-bytes=$(git ls-files | awk '!/^README/ && !/^docs\// && !/^tools\// &&
+bytes=$(git ls-files | awk '!/^README/ && !/^docs\// && !/^tools\// && !/^tests\// &&
     ($0 ~ /\.sh$/ || $0 ~ /\.j2$/)' | while IFS= read -r file; do
     wc -c < "$file"
 done | awk '{total += $1} END {print total + 0}')

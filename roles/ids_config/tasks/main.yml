@@ -8,40 +8,27 @@
     group: "{{ ids_group }}"
     mode: "0640"
     backup: yes
+    validate: sh -n %s
   notify: restart ids
   tags: [config]
 
-- name: Deploy environment-specific configurations
+- name: Deploy threshold reference
   ansible.builtin.template:
-    src: "{{ item }}.j2"
-    dest: "{{ ids_config_path }}/{{ item }}"
+    src: thresholds.conf.j2
+    dest: "{{ ids_config_path }}/thresholds.conf"
     owner: "{{ ids_user }}"
     group: "{{ ids_group }}"
     mode: "0640"
-  loop:
-    - thresholds.conf
-    - alerts.conf
-    - checks.conf
-  notify: restart ids
   tags: [config]
 
-- name: Deploy custom check scripts
-  ansible.builtin.template:
-    src: checks/{{ item }}.j2
-    dest: "{{ ids_base_path }}/bin/checks/{{ item }}"
-    owner: "{{ ids_user }}"
-    group: "{{ ids_group }}"
-    mode: "0755"
-  loop:
-    - check_system.sh
-    - check_network.sh
-    - check_users.sh
-    - check_files.sh
-  tags: [config, checks]
-
+# Source the file the way the monitor does and check the settings it
+# cannot run without.
 - name: Validate configuration
-  ansible.builtin.command: "{{ ids_base_path }}/bin/setup.sh --validate-config"
-  register: config_validation
+  ansible.builtin.shell: |
+    set -eu
+    . "{{ ids_config_path }}/ids.conf"
+    for v in IDS_HOME BASELINE_FILE ALERT_LOG CRITICAL_FILES CHECK_INTERVAL; do
+      eval "[ -n \"\${$v:-}\" ]" || { echo "missing $v"; exit 1; }
+    done
   changed_when: false
-  failed_when: config_validation.rc != 0
   tags: [config, validate]

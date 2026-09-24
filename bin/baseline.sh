@@ -2,6 +2,118 @@
 # IDS Baseline Generator
 # Creates initial baseline for system state
 # Run this on a clean, trusted system before monitoring
+#
+# Two outputs:
+#   BASELINE_FILE (from the configuration)  checksums of CRITICAL_FILES, the
+#                                           file monitor.sh compares against
+#   /var/lib/ids/baseline                   a wider snapshot for manual review
+
+CONFIG="/etc/ids/ids_config.conf"
+CONFIG_GIVEN=0
+OUTPUT=""
+MONITOR_BASELINE=1
+SNAPSHOT=1
+VERIFY=0
+
+usage() {
+    cat <<'USAGE'
+Usage: ids_baseline [-c CONFIG] [-o FILE] [-n | -S | -V]
+  -c CONFIG   configuration file (default: /etc/ids/ids_config.conf)
+  -o FILE     write the monitor baseline here instead of BASELINE_FILE
+  -n          monitor baseline only, skip the system snapshot
+  -S          system snapshot only, leave the monitor baseline alone
+  -V          verify CRITICAL_FILES against the monitor baseline and exit
+              (0 unchanged, 1 changed or missing, 2 no baseline)
+  -h          show help
+USAGE
+}
+
+while getopts ":c:o:nSVh" opt; do
+    case "$opt" in
+        c) CONFIG=$OPTARG; CONFIG_GIVEN=1 ;;
+        o) OUTPUT=$OPTARG ;;
+        n) SNAPSHOT=0 ;;
+        S) MONITOR_BASELINE=0 ;;
+        V) VERIFY=1 ;;
+        h) usage; exit 0 ;;
+        \?) echo "Unknown option: -$OPTARG" >&2; usage >&2; exit 2 ;;
+        :) echo "Missing argument for -$OPTARG" >&2; usage >&2; exit 2 ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+# Defaults match config/ids.conf; the configuration overrides them.
+BASELINE_FILE="/var/log/ids/baseline.dat"
+CRITICAL_FILES="/etc/passwd /etc/shadow /etc/sudoers /etc/ssh/sshd_config"
+if [ -f "$CONFIG" ]; then
+    . "$CONFIG"
+elif [ "$CONFIG_GIVEN" = "1" ]; then
+    echo "Configuration file not found: $CONFIG" >&2
+    exit 1
+fi
+[ -n "$OUTPUT" ] && BASELINE_FILE=$OUTPUT
+
+# One checksum line per critical file, in the format check_file_integrity
+# in monitor.sh reads: "<sha256>  <path>", or "MD5:<md5>  <path>" on
+# systems without sha256sum.
+checksum_line() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1"
+    else
+        printf 'MD5:%s\n' "$(md5sum "$1")"
+    fi
+}
+
+write_checksums() {
+    printf '# ids baseline of CRITICAL_FILES, generated %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    for file in $CRITICAL_FILES; do
+        if [ -f "$file" ]; then
+            checksum_line "$file" || return 1
+        else
+            echo "  not present, skipped: $file" >&2
+        fi
+    done
+}
+
+if [ "$VERIFY" = "1" ]; then
+    if [ ! -f "$BASELINE_FILE" ]; then
+        echo "No monitor baseline at $BASELINE_FILE" >&2
+        exit 2
+    fi
+    status=0
+    for file in $CRITICAL_FILES; do
+        expected=$(grep -F "  $file" "$BASELINE_FILE" | awk -v f="$file" '$2 == f {print $1}')
+        if [ ! -f "$file" ] && [ -z "$expected" ]; then
+            echo "ABSENT    $file"
+        elif [ ! -f "$file" ]; then
+            echo "MISSING   $file"; status=1
+        elif [ -z "$expected" ]; then
+            echo "UNLISTED  $file"
+        elif [ "$(checksum_line "$file" | awk '{print $1}')" = "$expected" ]; then
+            echo "OK        $file"
+        else
+            echo "CHANGED   $file"; status=1
+        fi
+    done
+    exit $status
+fi
+
+if [ "$MONITOR_BASELINE" = "1" ]; then
+    echo "Writing monitor baseline: $BASELINE_FILE"
+    mkdir -p "$(dirname "$BASELINE_FILE")" || exit 1
+    tmp="$BASELINE_FILE.tmp.$$"
+    # Build next to the target and rename, so the monitor never reads a
+    # half-written baseline.
+    if write_checksums > "$tmp" && chmod 600 "$tmp" && mv "$tmp" "$BASELINE_FILE"; then
+        echo "  $(grep -vc '^#' "$BASELINE_FILE") files recorded"
+    else
+        rm -f "$tmp"
+        echo "Could not write $BASELINE_FILE" >&2
+        exit 1
+    fi
+fi
+
+[ "$SNAPSHOT" = "1" ] || exit 0
 
 BASELINE_DIR="/var/lib/ids/baseline"
 TIMESTAMP=$(date -u +"%Y%m%d_%H%M%S")

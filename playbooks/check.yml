@@ -68,7 +68,6 @@
           loop:
             - ids.conf
             - thresholds.conf
-            - alerts.conf
 
         - name: Check configuration syntax
           ansible.builtin.shell: |
@@ -129,7 +128,7 @@
 
         - name: Check for recent alerts
           ansible.builtin.shell: |
-            tail -20 {{ ids_log_path }}/alerts.log 2>/dev/null | grep -c ALERT || echo "0"
+            wc -l < {{ ids_log_path }}/alerts.json 2>/dev/null || echo "0"
           register: recent_alerts
           changed_when: false
           failed_when: false
@@ -155,6 +154,7 @@
         src: status-report.txt.j2
         dest: "/tmp/ids_status_{{ ansible_hostname }}_{{ ansible_date_time.epoch }}.txt"
       delegate_to: localhost
+      become: false
       tags: [report]
 
   post_tasks:

@@ -1,53 +1,44 @@
 ---
 # Main tasks for ids_baseline role
-- name: Check for existing baseline
+# The monitor baseline is written once, on the first deploy, from files
+# that are known to be good. Later deploys keep it unless
+# ids_baseline_regenerate is set, so a deploy cannot accept a tampered file.
+- name: Check for existing monitor baseline
   ansible.builtin.stat:
-    path: /var/lib/ids/baselines/current.baseline
+    path: "{{ ids_baseline_file }}"
   register: existing_baseline
   tags: [baseline]
 
-- name: Backup existing baseline
+- name: Back up the existing monitor baseline
   ansible.builtin.copy:
-    src: /var/lib/ids/baselines/current.baseline
-    dest: "/var/lib/ids/baselines/baseline_{{ ansible_date_time.epoch }}.backup"
+    src: "{{ ids_baseline_file }}"
+    dest: "/var/lib/ids/baselines/baseline_{{ ansible_date_time.epoch }}.dat"
     remote_src: yes
     owner: "{{ ids_user }}"
     group: "{{ ids_group }}"
-    mode: "0640"
-  when: existing_baseline.stat.exists
+    mode: "0600"
+  when: existing_baseline.stat.exists and ids_baseline_regenerate | bool
   tags: [baseline, backup]
 
-- name: Generate system baseline
-  ansible.builtin.shell: |
-    {{ ids_base_path }}/bin/baseline.sh --generate \
-      --output /var/lib/ids/baselines/current.baseline \
-      --exclude "{{ ids_baseline.exclusions | join(',') }}"
+- name: Generate the monitor baseline and snapshot
+  ansible.builtin.command: "{{ ids_base_path }}/bin/baseline.sh -c {{ ids_config_path }}/ids.conf"
   register: baseline_generation
-  changed_when: baseline_generation.rc == 0
+  when: not existing_baseline.stat.exists or ids_baseline_regenerate | bool
   tags: [baseline, generate]
 
-- name: Verify baseline integrity
-  ansible.builtin.shell: |
-    {{ ids_base_path }}/bin/baseline.sh --verify \
-      --baseline /var/lib/ids/baselines/current.baseline
+- name: Verify files against the monitor baseline
+  ansible.builtin.command: "{{ ids_base_path }}/bin/baseline.sh -c {{ ids_config_path }}/ids.conf -V"
   register: baseline_verify
   changed_when: false
   failed_when: baseline_verify.rc > 1
   tags: [baseline, verify]
 
-- name: Set baseline permissions
-  ansible.builtin.file:
-    path: /var/lib/ids/baselines/current.baseline
-    owner: "{{ ids_user }}"
-    group: "{{ ids_group }}"
-    mode: "0640"
-  tags: [baseline]
+- name: Show files that differ from the monitor baseline
+  ansible.builtin.debug:
+    var: baseline_verify.stdout_lines
+  when: baseline_verify.rc == 1
+  tags: [baseline, verify]
 
-- name: Create baseline metadata
-  ansible.builtin.template:
-    src: baseline-metadata.json.j2
-    dest: /var/lib/ids/baselines/metadata.json
-    owner: "{{ ids_user }}"
-    group: "{{ ids_group }}"
-    mode: "0644"
+- name: Record baseline metadata
+  ansible.builtin.include_tasks: metadata.yml
   tags: [baseline, metadata]

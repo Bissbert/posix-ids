@@ -1,22 +1,22 @@
-# Ansible deployment scaffolding
+# Ansible deployment
 
 [← back to the overview](../README.md)
 
-The Ansible tree is a deployment design layered around the shell scripts. The
-inventories define `ids_servers`, service mode, paths, thresholds and optional
-Splunk settings. `playbooks/site.yml` is intended to compose base setup,
-monitoring, configuration, alerts, baselines and Splunk roles.
+The Ansible tree deploys the shell scripts to the `ids_servers` group. The
+inventories define service mode, paths, thresholds and optional Splunk
+settings; the shared variables live in `playbooks/group_vars/all/main.yml`,
+next to the playbooks, so every playbook loads them. `playbooks/site.yml`
+composes base setup, configuration, the monitor and the baseline.
 
 ```mermaid
 flowchart TD
     I["inventory/<br/>production or staging"] --> S["playbooks/site.yml"]
+    G["playbooks/group_vars/all"] --> S
     S --> B["ids_base<br/>packages, directories, limits"]
+    S --> C["ids_config<br/>/etc/ids/ids.conf"]
     S --> M["ids_monitor<br/>scripts and service"]
-    S --> C["ids_config<br/>Jinja configuration"]
-    S --> L["ids_baseline<br/>generate and verify"]
-    S -. "referenced, not present" .-> A["ids_alerts"]
-    S -. "referenced, not present" .-> P["ids_splunk"]
-    M --> H["systemd, initd or cron"]
+    S --> L["ids_baseline<br/>baseline.sh, then -V"]
+    M --> H["systemd or cron"]
     B --> T["target Linux host"]
     C --> T
     L --> T
@@ -24,47 +24,54 @@ flowchart TD
     style I fill:#1f6feb,stroke:#58a6ff,color:#fff
     style S fill:#238636,stroke:#3fb950,color:#fff
     style T fill:#8250df,stroke:#bc8cff,color:#fff
-    style A fill:#da3633,stroke:#f85149,color:#fff
-    style P fill:#da3633,stroke:#f85149,color:#fff
 ```
 
-## What the existing roles describe
+## What the roles do
 
-| Role or layer | Current responsibility in the tree |
+| Role or layer | Responsibility |
 |---|---|
-| `ids_base` | preflight, package installation, directories, optional dedicated user, sysctl and limits, sudoers and log rotation |
-| `ids_monitor` | copies `monitor.sh`, `baseline.sh`, `alert.sh` and `setup.sh`; renders service helpers; configures service mode |
-| `ids_config` | renders `ids.conf.j2`, thresholds and additional check configuration; validates the rendered configuration |
-| `ids_baseline` | backs up a current baseline, calls a generate/verify interface, sets permissions and renders metadata |
+| `ids_base` | preflight, package installation, directories, optional dedicated user, sysctl and limits, sudoers and log rotation; owns the shared handlers |
+| `ids_config` | renders `ids.conf.j2` (every key `config/ids.conf` has), thresholds and checks files, and checks the result with `sh -n` |
+| `ids_monitor` | copies `monitor.sh`, `baseline.sh`, `alert.sh` and `setup.sh`; renders the wrapper, status and health-check scripts; configures systemd or cron |
+| `ids_baseline` | backs up an existing baseline, runs `baseline.sh -c /etc/ids/ids.conf`, verifies with `-V` and renders metadata |
 | `inventory/*` | host groups plus environment-specific paths, service settings, intervals, retention and alert/Splunk variables |
-| `playbooks/*` | complete deployment, focused deployment, updates, checks, baseline actions and removal |
+| `playbooks/*` | complete deployment, focused deployment, updates, checks, baseline actions (`generate`, `snapshot`, `verify`, `compare`) and removal |
 
-The roles are more ambitious than the scripts currently present. For example,
-the baseline role passes command-line options that `bin/baseline.sh` does not
-parse, and `playbooks/site.yml` names roles that do not exist; see
-[bug 7](BUGS-FOUND.md#7-ansible-references-absent-roles-includes-and-templates).
+Every script the roles install is called with `-c /etc/ids/ids.conf`, so the
+deployed monitor reads the configuration Ansible renders.
 
 ## Service boundaries
 
-The Ansible templates support three service shapes:
+`ids_service_type` is `systemd` or `cron`:
 
-- systemd starts a wrapper and manages a unit and optional baseline timer;
-- initd starts the monitor through an init script;
-- cron invokes a wrapper for monitoring, baseline work and alert checks.
+- systemd starts `ids-wrapper.sh`, which runs `monitor.sh -d`, and an optional
+  timer runs `baseline.sh -S` to refresh the review snapshot;
+- cron runs `ids-cron-wrapper.sh monitor` every `ids_check_interval` and
+  `ids-cron-wrapper.sh baseline` (also `-S`) nightly.
 
-The deployed monitor still reads the shell configuration contract described in
-[`detection-pipeline.md`](detection-pipeline.md). The templates introduce a
-second configuration vocabulary (`ids.conf`, thresholds and checks files), so
-the rendered values need a tested mapping before a deployment can be trusted.
+Neither schedule rewrites the monitor baseline; `playbooks/baseline.yml -e
+action=generate` does that on request.
+
+## Vault
+
+The inventories read their webhook URLs from `vault_*` variables with an empty
+default. `ansible.cfg` no longer names a vault password file; pass
+`--vault-password-file` or `--ask-vault-pass` when a vault is in use.
 
 ## Verification status
 
-The local Ansible executable was available, but the repository's
-`ansible.cfg` points at `~/.ansible/vault_pass.txt`, which was absent. The
-syntax-check command therefore stopped before contacting a host. No inventory
-host was contacted, no vault password was guessed, and no deployment was run.
+`tests/ansible/deploy.sh` runs in the Ansible image that `sh tests/docker.sh`
+builds (ansible-core 2.17). Against `localhost` inside the container, with the
+cron service type, it:
 
-The missing root task files, roles and templates are listed with locations and
-reproduction steps in [`BUGS-FOUND.md`](BUGS-FOUND.md). This write-up records
-the scaffolding as checked in; it does not imply that the deployment is
-currently executable end to end.
+- runs `--syntax-check` on every playbook;
+- runs `site.yml`, then checks the rendered `/etc/ids/ids.conf`, the monitor
+  baseline, the crontab entry, one monitor pass through the cron wrapper, and
+  the status and health-check scripts;
+- runs `deploy.yml`, `baseline.yml` with `action=verify` and
+  `action=snapshot` (the monitor baseline stays unchanged), and `check.yml`.
+
+`tests/static/ansible_refs.py` checks that every role, task file, template,
+file and handler the playbooks name exists, and that the flags passed to the
+scripts are ones they accept. The systemd service type and remote hosts were
+not exercised.

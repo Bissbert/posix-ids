@@ -3,6 +3,15 @@
 ids_version: "1.0.0"
 ids_source_path: "{{ playbook_dir }}/../"  # Path to IDS source code
 ids_backup_path: /var/backups/ids
+# Install, configuration and log paths. The ids_base role has the same
+# defaults, but role defaults are not visible to plays that only use
+# include_role (baseline.yml, check.yml, deploy.yml, update.yml), so the
+# playbooks take them from here.
+ids_base_path: /opt/ids
+ids_config_path: /etc/ids
+ids_log_path: /var/log/ids
+ids_user: root
+ids_group: root
 ids_temp_path: /tmp/ids_install
 
 # OS Package Dependencies
@@ -73,18 +82,16 @@ ids_checks:
     priority: high
 
 # Baseline Settings
+# The monitor baseline (sha256 of CRITICAL_FILES) that monitor.sh checks
+# on every run; ids.conf sets BASELINE_FILE to this path.
+ids_baseline_file: "{{ ids_log_path }}/baseline.dat"
+# Re-write the monitor baseline on a deploy that finds one already there.
+# Leave this off unless the current files are known to be good.
+ids_baseline_regenerate: false
 ids_baseline:
+  # Refresh the baseline.sh -S snapshot under /var/lib/ids/baseline at
+  # 03:00. The nightly job never rewrites the monitor baseline.
   auto_update: false
-  update_schedule: "0 3 * * *"  # 3 AM daily
-  exclusions:
-    - /tmp
-    - /var/tmp
-    - /var/cache
-    - /var/log
-    - /proc
-    - /sys
-    - /dev
-    - /run
 
 # Logging Configuration
 ids_log_format: json  # json or text
@@ -111,7 +118,7 @@ ids_alert_destinations:
     severity: warning
   - type: file
     enabled: true
-    path: "{{ ids_log_path }}/alerts.log"
+    path: "{{ ids_log_path }}/alerts.json"
 
 # Performance Tuning
 ids_performance:
