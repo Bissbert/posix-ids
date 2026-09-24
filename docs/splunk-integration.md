@@ -72,13 +72,13 @@ line it can attempt:
 - email for `critical` and `high` records using `mail`, `sendmail` or `mailx`;
 - local syslog through `logger`, or a TCP endpoint through `nc` or `telnet`.
 
-These are transport attempts, not delivery guarantees. This pass did not send
-anything to an external webhook, mail system, syslog endpoint or Splunk
+These are transport attempts, not delivery guarantees. None of them has been
+tested against a real webhook, mail system, syslog endpoint or Splunk
 instance.
 
 ## Known integration gap
 
-The path and schema mismatches are recorded with file locations and proposed
-diffs in [`BUGS-FOUND.md`](BUGS-FOUND.md). They remain unchanged so this pass
-documents the repository rather than silently changing its runtime or SIEM
-contract.
+The path and schema mismatches are
+[bug 5](BUGS-FOUND.md#5-splunk-input-paths-and-field-names-do-not-match-the-monitor).
+It is open because the fix changes the SIEM contract that saved searches,
+dashboards and existing indexed data depend on.

@@ -1,5 +1,5 @@
 #!/bin/sh
-# measure.sh - Repeatable repository and syntax measurements for the docs pass.
+# measure.sh - Repeatable repository and syntax measurements for the docs.
 
 set -eu
 

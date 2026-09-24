@@ -40,9 +40,9 @@ flowchart TD
 | `playbooks/*` | complete deployment, focused deployment, updates, checks, baseline actions and removal |
 
 The roles are more ambitious than the scripts currently present. For example,
-the monitor role correctly copies `monitor.sh`, while the standalone installer
-looks for a different filename. The baseline role passes command-line options
-that `bin/baseline.sh` does not parse.
+the baseline role passes command-line options that `bin/baseline.sh` does not
+parse, and `playbooks/site.yml` names roles that do not exist; see
+[bug 7](BUGS-FOUND.md#7-ansible-references-absent-roles-includes-and-templates).
 
 ## Service boundaries
 

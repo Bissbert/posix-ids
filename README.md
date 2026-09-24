@@ -41,44 +41,35 @@ cd posix-ids
 # Single server — manual install
 sudo ./bin/setup.sh
 
-# Multiple servers — Ansible (recommended)
-ansible-galaxy collection install -r collections/requirements.yml
-ansible-playbook -i inventory/production playbooks/site.yml
-
-# Verify it is running
-sudo tail -f /var/log/ids/alerts.json
+# One pass, then read the alerts
+sudo /usr/local/bin/ids_monitor -c /etc/ids/ids_config.conf -1
+sudo tail /var/log/ids/alerts.json
 ```
 
-### Verify without installing
+The Ansible playbooks in `playbooks/` still reference roles and templates that
+do not exist ([bug 7](docs/BUGS-FOUND.md#7-ansible-references-absent-roles-includes-and-templates)),
+so they are not a working install path yet.
 
-These commands are the verified source-level and container-level entry points:
+### Try it in a container first
 
 ```sh
-# Check every tracked shell script and list the monitor checks.
-sh tools/measure.sh
+# Install, run the tests and check the open bugs in a disposable Debian container.
+sh tools/linux-run.sh
 
-# Show the two directly runnable command interfaces.
-sh bin/monitor.sh -h
-sh bin/alert.sh -h
-
-# Run the monitor against harmless artefacts in a disposable Debian container.
+# Run the monitor against harmless test artefacts in a disposable Debian container.
 sh tools/container_run.sh
 ```
 
-The container harness installs only its measurement utilities inside the
-throwaway container. It creates an isolated baseline, runs a cold pass, adds
-test artefacts, and runs a warm pass. It does not install anything on the host.
-`bin/setup.sh` previously named source files that were not in `bin/`; that
-has since been corrected on the default branch, so the install path above is
-the supported one. The container harness remains the way to exercise the
-monitor without touching a host.
+Both scripts need Docker and change nothing on the host. The installer, the
+monitor and the test script all read and write system paths such as
+`/var/log/ids` and `/etc/ids`, so try them in a container before a real host.
 
 ## Components
 
 - `bin/monitor.sh` — continuous monitoring loop (daemon, oneshot, or interactive). Runs checks for brute-force attempts, port scans, file integrity, SUID changes, webshells, cryptominers, hidden processes, SSH/cron config drift, and resource exhaustion. Outputs newline-delimited JSON to `/var/log/ids/alerts.json`.
 - `bin/alert.sh` — reads the alert log and forwards events to a Slack-compatible webhook, email (`mail`/`sendmail`/`mailx`), or a TCP/local syslog endpoint.
-- `bin/baseline.sh` — captures SHA-256 checksums of critical binaries into a baseline file used by integrity checks.
-- `bin/setup.sh` — installs scripts, config, and a systemd unit (falls back to cron on non-systemd systems).
+- `bin/baseline.sh` — writes a broad MD5 and system snapshot under `/var/lib/ids/baseline`. The monitor's integrity check reads a different file, so this snapshot is not used by it yet ([bug 2](docs/BUGS-FOUND.md#2-baseline-generator-does-not-produce-the-monitors-baseline)).
+- `bin/setup.sh` — installs the scripts as `ids_monitor`, `ids_baseline` and `ids_alert`, the config as `/etc/ids/ids_config.conf`, a systemd unit (or an init.d script without systemd), and a daily baseline cron entry.
 - `splunk/` — drop-in Splunk Universal Forwarder config (`inputs.conf`, `props.conf`, `savedsearches.conf`) plus a pre-built XML dashboard.
 - Ansible roles in `roles/` handle multi-host deployment, logrotate, sudoers, and systemd/cron service wiring.
 
@@ -132,7 +123,7 @@ The exact input, predicate, state file, and blind spot for every check are in
 
 ## Configuration
 
-Edit `/etc/ids/ids.conf` after installation. Key variables:
+Edit `/etc/ids/ids_config.conf` after installation. Key variables:
 
 | Variable | Default | Description |
 |---|---|---|
@@ -141,26 +132,20 @@ Edit `/etc/ids/ids.conf` after installation. Key variables:
 | `CPU_THRESHOLD` | `80` | CPU % before alert |
 | `CHECK_INTERVAL` | `60` | Seconds between monitoring cycles |
 | `ALERT_TO_FILE` | `1` | Write JSON to alert log |
-| `ALERT_TO_SYSLOG` | `0` | Forward to syslog |
+| `ALERT_TO_SYSLOG` | `1` | Forward to syslog. The priority names it builds are rejected by Debian's `logger` ([bug 3](docs/BUGS-FOUND.md#3-syslog-priority-built-from-an-ids-severity)); set `0` until that is fixed. |
 
-## Measured results
+## Results
 
-The repository measurement script reported 73606 bytes of implementation shell
-and Jinja source, 16 monitor check functions, and passing shell syntax checks.
-Those values come from `sh tools/measure.sh`.
-
-The disposable-container run used Debian GNU/Linux 12 with `dash`, installed
-`procps` and `net-tools`, and ran the checked-in monitor directly. Its warm
-pass exited with status 0 and wrote 13 alert records for the planted artefacts.
-The measured wall-clock delta for that pass was 257238750 nanoseconds. This is
-one container run, not a performance guarantee.
+From `sh tools/linux-run.sh` in `debian:12-slim` (Linux 6.5.11, aarch64), on
+2026-09-24. Details are in [docs/measurement.md](docs/measurement.md).
 
 | Command | Result |
 |---|---|
-| `sh tools/measure.sh` | 73606 implementation shell/Jinja bytes; 16 checks; syntax pass |
-| `sh bin/monitor.sh -h` | help displayed |
-| `sh bin/alert.sh -h` | help displayed |
-| `sh tools/container_run.sh` | warm pass exit 0; 13 JSON alerts; 257238750 ns wall delta |
+| `sh tools/measure.sh` | 73,538 implementation shell/Jinja bytes; 16 checks; syntax pass |
+| `sh bin/monitor.sh -h`, `sh bin/alert.sh -h` | exit 0 |
+| `sh bin/setup.sh -s`, then `sh bin/setup.sh` | exit 0; all three scripts and the config installed |
+| `sh tests/test.sh` | stops at Test 8 on a fresh install ([bug 10](docs/BUGS-FOUND.md#10-test-script-stops-at-test-8-on-a-fresh-install)); otherwise 10 passed, 2 failed (no baseline, no auth log) |
+| `sh tools/container_run.sh` | warm pass exit 0; 13 JSON alerts for 9 planted artefacts; 0.31 s |
 
 ## Repository layout
 
@@ -174,7 +159,7 @@ splunk/                 Splunk inputs, field parsing, searches and dashboard
 tests/                  installation-oriented shell test script
 examples/               Ansible deployment and maintenance examples
 docs/                   graphical overview, subsystem write-ups and measurements
-tools/                  measurement harnesses used by this documentation pass
+tools/                  measurement script and container harnesses
 ```
 
 ## Known limitations
@@ -186,12 +171,17 @@ tools/                  measurement harnesses used by this documentation pass
   timestamps. Port-scan detection is a snapshot of current `netstat` output,
   not a historical connection window.
 - The Splunk files currently point at paths and schemas that do not match the
-  monitor's `alerts.json` records. Splunk was not run in this pass.
+  monitor's `alerts.json` records. Splunk itself has not been run against it.
 - The Ansible graph references absent roles, task files, templates and
   unsupported baseline options. No remote host was contacted.
 - The monitor depends on host tools and permissions, including `/proc`,
   `netstat` or equivalent availability, readable authentication logs, and
-  access to the watched paths. The container harness installs only the tools it
+  access to the watched paths. The container harnesses install `procps` and
+  `net-tools` inside their container for that reason.
+- With the default `ALERT_TO_SYSLOG=1`, the monitor passes IDS severities such
+  as `medium` to `logger` as priorities, which Debian's `logger` rejects.
+- `tests/test.sh` stops at Test 8 when `alerts.json` has no other records, as on
+  a fresh install.
 
 ## Status
 

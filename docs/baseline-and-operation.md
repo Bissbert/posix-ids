@@ -9,9 +9,7 @@ The repository has two related but currently incompatible baseline concepts.
 
 ```mermaid
 flowchart TD
-    S["bin/setup.sh"] --> N{"script names resolve?"}
-    N -- "no: current repository" --> X["stops at first missing source"]
-    N -- "yes after a future repair" --> I["install scripts and config"]
+    S["bin/setup.sh"] --> I["install scripts and config"]
     I --> B["bin/baseline.sh"]
     B --> L["/var/lib/ids/baseline/<br/>hashes, configs and system snapshots"]
     M["bin/monitor.sh"] --> C["config/ids.conf"]
@@ -22,7 +20,6 @@ flowchart TD
     style S fill:#1f6feb,stroke:#58a6ff,color:#fff
     style B fill:#9e6a03,stroke:#d29922,color:#fff
     style M fill:#238636,stroke:#3fb950,color:#fff
-    style X fill:#da3633,stroke:#f85149,color:#fff
 ```
 
 ## What the broad generator records
@@ -61,19 +58,19 @@ The monitor can be invoked from source for a single pass:
 sh bin/monitor.sh -c config/ids.conf -1
 ```
 
-That command needs the configured absolute paths and suitable permissions. It
-was not run against the host because it reads and writes `/var/log/ids` and
-inspects host security state. The isolated version used for measurements is
-`tools/container_run.sh`.
+That command needs the configured absolute paths and suitable permissions,
+because it reads and writes `/var/log/ids` and inspects host security state.
+`tools/container_run.sh` runs it inside a disposable Debian container instead.
 
 ## Service and scheduling paths
 
-The source installer tries to create a systemd unit when systemd is present,
-otherwise an init script, and it writes a cron entry for baseline generation.
-The Ansible roles separately describe systemd, initd and cron deployment. Those
-paths do not all agree on filenames, baseline arguments or destination paths.
-The missing references and unsupported options are listed in
-[`BUGS-FOUND.md`](BUGS-FOUND.md); no deployment target was contacted.
+The source installer creates a systemd unit when systemd is present, otherwise
+an init script, and it writes a cron entry for baseline generation. In a Debian
+container without systemd it installed all scripts and the init script and
+exited 0 (see [Measurement](measurement.md#installer)). The Ansible roles
+separately describe systemd, initd and cron deployment, but they reference
+missing files and baseline options; see
+[bug 7](BUGS-FOUND.md#7-ansible-references-absent-roles-includes-and-templates).
 
 ## Operational limitations
 
@@ -83,5 +80,5 @@ The missing references and unsupported options are listed in
   account and configuration files. It must be protected as host security data.
 - The monitor's `BASELINE_AGE_WARN` setting is loaded but no check in
   `monitor.sh` uses it to emit an age warning.
-- The source installer and Ansible deployment are documented here as current
-  code paths, not as verified installation procedures.
+- The Ansible deployment is documented here as a code path, not a working
+  installation procedure (bug 7).

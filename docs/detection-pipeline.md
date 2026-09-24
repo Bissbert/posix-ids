@@ -84,10 +84,10 @@ The monitor and alert router are separate processes. Running the monitor alone
 does not send a webhook or email; it only writes the JSON record and optionally
 calls its own syslog branch.
 
-## Measured firing
+## Firing in a container
 
 `sh tools/container_run.sh` created a disposable Debian GNU/Linux 12
-environment, seeded a baseline, ran one cold pass, planted failed-login lines,
+environment, seeded a baseline, ran one cold pass, planted nine test artefacts,
 and ran one warm pass. The warm pass exited `0` and wrote `13` records. The
 records included brute-force, critical-file, SUID/SGID, webshell, new-user,
 failed-login, sudo, cryptominer, deleted-binary, resource and configuration

@@ -1,305 +1,245 @@
-# Bugs found during the documentation pass
+# Bugs found
 
 [← back to the overview](../README.md)
 
-This file records implementation and integration defects found while tracing
-the checked-in code. None of the tracked runtime files were changed.
+Each entry was reviewed against the source. Two are fixed on `main`. Five are
+still open because the fix needs a decision about formats, schemas or
+deployment scope. Two reports were rejected. One more turned up when the checks
+were re-run in a Linux container. Every command below runs inside the
+disposable Debian container that [`tools/linux-run.sh`](../tools/linux-run.sh)
+starts (see [Measurement](measurement.md)); none of them runs on a host.
 
-## Installer references files that are not in `bin/`
+| # | Entry | Status |
+|---|---|---|
+| 1 | Installer names files that are not in `bin/` | Fixed in [`9f76a68`](https://github.com/Bissbert/posix-ids/commit/9f76a68) |
+| 2 | Baseline generator does not produce the monitor's baseline | Open |
+| 3 | Syslog priority built from an IDS severity | Open |
+| 4 | Authentication windows are line counts, not time windows | Open |
+| 5 | Splunk input paths and field names do not match the monitor | Open |
+| 6 | Test summary counts source lines, not results | Fixed in [`5a49ceb`](https://github.com/Bissbert/posix-ids/commit/5a49ceb) |
+| 7 | Ansible references absent roles, includes and templates | Open |
+| 8 | Legacy installation guide names another layout | Not a bug: the guide is marked legacy |
+| 9 | Ansible README presents the intended tree as complete | Not a bug: the README already says it is unverified |
+| 10 | Test script stops at Test 8 on a fresh install | Open |
 
-Location: `bin/setup.sh:122-124`.
+## 1. Installer names files that are not in `bin/`
 
-What happens: setup looks for `ids_monitor.sh`, `generate_baseline.sh` and
-`ids_alert.sh`, but the repository contains `monitor.sh`, `baseline.sh` and
-`alert.sh`. `sh bin/setup.sh -s` prints `Source file not found:
-bin/ids_monitor.sh` and exits with status `1`.
+**Status:** fixed in [`9f76a68`](https://github.com/Bissbert/posix-ids/commit/9f76a68).
 
-Reproduce from the repository root:
+**File:** `bin/setup.sh`
+
+**What happened:** setup looked for `ids_monitor.sh`, `generate_baseline.sh`,
+`ids_alert.sh` and `ids_config.conf`, none of which exist. `sh bin/setup.sh -s`
+stopped at the first missing file with exit status 1.
+
+**What changed:** setup now installs the checked-in `bin/monitor.sh`,
+`bin/baseline.sh`, `bin/alert.sh` and `config/ids.conf`. The installed names
+(`ids_monitor`, `ids_baseline`, `ids_alert`, `/etc/ids/ids_config.conf`) are
+unchanged.
+
+**Check:**
+
+```text
+=== bin/setup.sh -s (simulate)
+exit=0
+[INFO] [SIMULATE] Would install: bin/monitor.sh -> /usr/local/bin/ids_monitor (perms: 755)
+[INFO] [SIMULATE] Would install: bin/baseline.sh -> /usr/local/bin/ids_baseline (perms: 755)
+[INFO] [SIMULATE] Would install: bin/alert.sh -> /usr/local/bin/ids_alert (perms: 755)
+[INFO] [SIMULATE] Would install: ids_config.conf -> /etc/ids/ids_config.conf
+
+=== bin/setup.sh (real install, as root, inside this container)
+exit=0
+[INFO] Installed: /usr/local/bin/ids_monitor
+[INFO] Installed: /usr/local/bin/ids_baseline
+[INFO] Installed: /usr/local/bin/ids_alert
+[INFO] Installed: /etc/ids/ids_config.conf
+[INFO] Created init script: /etc/init.d/ids-monitor
+```
+
+## 2. Baseline generator does not produce the monitor's baseline
+
+**Status:** open. The fix needs one agreed baseline path, format and checksum,
+plus a migration for existing baselines.
+
+**Files:** `bin/baseline.sh:6-14`, `config/ids.conf:10`, `bin/monitor.sh:169-194`
+
+**What happens:** `baseline.sh` writes timestamped MD5 lists below
+`/var/lib/ids/baseline`. The monitor reads `/var/log/ids/baseline.dat` and
+expects SHA-256 lines for the critical files. Nothing writes that file.
+
+**Reproduce:** after the container install above, which also runs the
+baseline generator:
+
+```text
+10:BASELINE_FILE="/var/log/ids/baseline.dat"
+/var/lib/ids/baseline (baseline.sh writes): present, 43 files
+/var/log/ids/baseline.dat (monitor.sh reads): absent
+```
+
+**Possible fix:** define one versioned baseline format and path, and generate
+the configured critical-file entries into it atomically.
+
+## 3. Syslog priority built from an IDS severity
+
+**Status:** open. The fix needs a mapping from IDS severities to syslog
+priorities, and a policy for what happens when the syslog sink fails.
+
+**File:** `bin/monitor.sh:96`
+
+**What happens:** `ALERT_TO_SYSLOG=1` is the default. The monitor passes the
+IDS severity straight to `logger` as `security.<severity>`. Debian's `logger`
+rejects `medium`, `high` and `critical` as priority names, and the monitor runs
+under `set -eu`.
+
+**Reproduce:**
+
+```text
+96:        logger -t "ids" -p "security.$severity" "$category: $description"
+logger: unknown priority name: medium
+logger -p security.medium  exit=1
+```
+
+`tools/container_run.sh` turns the syslog sink off so the other checks can be
+exercised.
+
+**Possible fix:** map severities to valid priorities before calling `logger`,
+as `bin/alert.sh` already does, and keep the file alert even if syslog fails.
+
+## 4. Authentication windows are line counts, not time windows
+
+**Status:** open. The fix needs a supported log timestamp format, plus rules
+for time zones, year rollover, clock skew and log rotation.
+
+**Files:** `bin/monitor.sh:140`, `bin/monitor.sh:252`, `bin/monitor.sh:268`;
+`config/ids.conf:20,29-30`
+
+**What happens:** brute-force detection reads the last 1000 auth-log lines,
+failed-login detection the last 500, and sudo detection the last 1000. No
+timestamps are parsed. The configuration describes five-minute windows for
+logins and one hour for sudo.
+
+**Reproduce:** `tools/container_run.sh` plants auth-log lines dated
+`Jan  1 00:00`, and the monitor still reports them as a brute-force attack,
+excessive failed logins and unusual sudo activity (see
+[Measurement](measurement.md#monitor-end-to-end)).
+
+**Possible fix:** parse the log timestamps and count only records inside the
+configured window.
+
+## 5. Splunk input paths and field names do not match the monitor
+
+**Status:** open. The owner of the Splunk schema has to choose the canonical
+field names and how existing data, searches and dashboards migrate.
+
+**Files:** `splunk/inputs.conf:5,15,116`, `splunk/props.conf:15-18`,
+`splunk/savedsearches.conf`
+
+**What happens:** the monitor writes JSON lines to `/var/log/ids/alerts.json`
+with `timestamp`, `hostname`, `severity`, `category`, `description` and
+optional `details`. `inputs.conf` watches `detection.json` and a missing
+`ids-monitor.sh`. `props.conf` and the saved searches use `event_type`,
+`source_ip`, `threat_category` and `process_name`, which the monitor does not
+emit.
+
+**Reproduce:** compare any record printed by `tools/container_run.sh` with
+those files. Splunk itself was not run.
+
+**Possible fix:** point the input at `alerts.json`, then either change the
+searches to use `category` and `details` or change the monitor's schema.
+
+## 6. Test summary counts source lines, not results
+
+**Status:** fixed in [`5a49ceb`](https://github.com/Bissbert/posix-ids/commit/5a49ceb).
+
+**File:** `tests/test.sh`
+
+**What happened:** the summary ran `grep -c '^\[PASS\]' "$0"` on the script's
+own source, so it never counted the results the tests had printed.
+
+**What changed:** `passed` and `failed` start at 0, and the `pass` and `fail`
+functions increment them.
+
+**Check:** with the container set up so the script reaches its summary (see
+entry 10), the counters match the printed results:
+
+```text
+runtime [PASS] lines: 10
+runtime [FAIL] lines: 2
+[TEST] Tests run: 10
+[TEST] Passed: 10
+[TEST] Failed: 2
+[TEST] Result: SOME TESTS FAILED
+```
+
+The two failures are expected in a container: no baseline file (entry 2) and
+no readable auth log. "Tests run" is a fixed number, 10, while some tests
+record more than one result.
+
+## 7. Ansible references absent roles, includes and templates
+
+**Status:** open. The deployment scope has to be decided first: either
+implement the missing pieces or narrow the playbooks to what exists.
+
+**Files:** `playbooks/site.yml:20-78`, `roles/ids_baseline/tasks/main.yml:14-65`,
+`roles/ids_config/tasks/main.yml:1-55`,
+`roles/ids_monitor/tasks/deploy_scripts.yml:24-48`
+
+**What happens:** `site.yml` includes `../tasks/backup.yml` and
+`../handlers/restart_ids.yml` and names `ids_alerts` and `ids_splunk` roles;
+none exists. Other roles reference missing templates
+(`baseline-metadata.json.j2`, the alerts and checks templates,
+`lib-functions.sh.j2`) and call `baseline.sh` with `--generate`, `--verify`,
+`--output` and `--baseline`, which the script does not parse.
+
+**Reproduce:**
 
 ```sh
-sh bin/setup.sh -s
+ls tasks handlers/restart_ids.yml roles/ids_alerts roles/ids_splunk
+grep -n -- '--generate\|--verify\|--output\|--baseline' roles/ids_baseline/tasks/main.yml
+grep -c -- '--generate' bin/baseline.sh
 ```
 
-The fix I would have made is:
+No Ansible run was attempted and no host was contacted.
 
-```diff
-diff --git a/bin/setup.sh b/bin/setup.sh
---- a/bin/setup.sh
-+++ b/bin/setup.sh
-@@
--install_script "$script_dir/ids_monitor.sh" "$PREFIX/bin/ids_monitor" 755
--install_script "$script_dir/generate_baseline.sh" "$PREFIX/bin/ids_baseline" 755
--install_script "$script_dir/ids_alert.sh" "$PREFIX/bin/ids_alert" 755
-+install_script "$script_dir/monitor.sh" "$PREFIX/bin/ids_monitor" 755
-+install_script "$script_dir/baseline.sh" "$PREFIX/bin/ids_baseline" 755
-+install_script "$script_dir/alert.sh" "$PREFIX/bin/ids_alert" 755
+**Possible fix:** add the missing roles and templates and a real baseline CLI,
+or remove the references until they exist.
+
+## 8. Legacy installation guide names another layout
+
+**Status:** not a bug. `docs/INSTALLATION.md` names older files such as
+`ids-monitor.sh`, but it opens with a note saying it is a legacy guide and not a
+procedure for the current checkout. The current install path is `bin/setup.sh`.
+
+## 9. Ansible README presents the intended tree as complete
+
+**Status:** not a bug. `README_ANSIBLE.md` already says, at the top, that it
+describes the intended layout and has not been verified end to end. The missing
+pieces themselves are entry 7.
+
+## 10. Test script stops at Test 8 on a fresh install
+
+**Status:** open. Found in the Linux run.
+
+**File:** `tests/test.sh:148-155`
+
+**What happens:** in safe mode, Test 8 appends a test alert to
+`/var/log/ids/alerts.json` and then removes it with
+`grep -v "IDS test alert" alerts.json.bak > alerts.json`. On a fresh install the
+file holds nothing else, so `grep -v` selects no lines and exits 1. The script
+runs under `set -eu`, so it stops there: Tests 9 and 10 and the summary never
+run, and the exit status is 1 whether or not anything failed.
+
+**Reproduce:** after `sh bin/setup.sh` in the container:
+
+```text
+=== tests/test.sh after a fresh install (empty alerts.json)
+exit=1
+last test started: Test 8: Alert generation (simulated)
+runtime [PASS] lines: 6
+runtime [FAIL] lines: 2
+(no summary printed)
 ```
 
-## The baseline generator does not create the monitor's baseline input
+With one earlier record in `alerts.json` the same run completes (entry 6).
 
-Locations: `bin/baseline.sh:6-14`, `config/ids.conf:10-11` and
-`bin/monitor.sh:169-194`.
-
-What happens: `baseline.sh` writes timestamped MD5 files below
-`/var/lib/ids/baseline`. The monitor instead reads
-`/var/log/ids/baseline.dat` and prefers SHA-256 lines for the critical files.
-The installer claims it creates the latter path, but its generator does not.
-
-Reproduce in a disposable root or container by running `bin/baseline.sh`, then
-checking both paths:
-
-```sh
-sh bin/baseline.sh
-find /var/lib/ids/baseline -type f -print
-test -f /var/log/ids/baseline.dat
-```
-
-The fix I would have made is to give the generator and monitor one shared
-format and path, for example:
-
-```diff
-diff --git a/bin/baseline.sh b/bin/baseline.sh
---- a/bin/baseline.sh
-+++ b/bin/baseline.sh
-@@
--BASELINE_DIR="/var/lib/ids/baseline"
-+BASELINE_FILE="/var/log/ids/baseline.dat"
-@@
--        find "$dir" -type f -exec md5sum {} \; 2>/dev/null | \
--            sort > "$BASELINE_DIR/hashes/$(echo "$dir" | tr / _).md5"
-+        find "$dir" -type f -exec sha256sum {} \; 2>/dev/null | \
-+            sort >> "$BASELINE_FILE"
-```
-
-## Syslog severity names are not valid on the measured Debian image
-
-Location: `bin/monitor.sh:95-97`.
-
-What happens: the default configuration sets `ALERT_TO_SYSLOG=1` and uses
-severity values such as `medium`. The monitor passes that value as a syslog
-priority (`security.medium`). Debian's `logger` rejects it with
-`unknown priority name: medium`; a direct run can therefore stop while
-handling an alert. The isolated container run used for this pass disabled the
-optional syslog sink so the other detections could be measured.
-
-Reproduce on a system whose `logger` has the same priority table:
-
-```sh
-printf '%s\n' '{"severity":"medium","category":"test","description":"test"}' \
-  | logger -p security.medium
-```
-
-The fix I would have made is to map IDS severities to valid syslog priorities
-before calling `logger`, as `bin/alert.sh` already does:
-
-```diff
-diff --git a/bin/monitor.sh b/bin/monitor.sh
---- a/bin/monitor.sh
-+++ b/bin/monitor.sh
-@@
--        logger -t "ids" -p "security.$severity" "$category: $description"
-+        case "$severity" in
-+            critical) priority="auth.crit" ;;
-+            high)     priority="auth.err" ;;
-+            medium)   priority="auth.warning" ;;
-+            low)      priority="auth.notice" ;;
-+            *)        priority="auth.info" ;;
-+        esac
-+        logger -t "ids" -p "$priority" "$category: $description"
-```
-
-## The authentication windows are line-count windows, not time windows
-
-Locations: `bin/monitor.sh:139-146`, `bin/monitor.sh:251-256` and
-`bin/monitor.sh:267-272`; the configuration comments describe five-minute
-windows.
-
-What happens: brute-force detection examines the last 1000 lines, failed-login
-detection examines the last 500 lines, and sudo detection examines the last
-1000 lines. No timestamps are parsed. The configured comments and the
-implementation therefore describe different detection windows.
-
-Reproduce by putting more than the configured threshold of matching lines into
-an old log file, with timestamps older than the stated window, and running:
-
-```sh
-sh bin/monitor.sh -c config/ids.conf -1
-```
-
-The fix I would have made is to parse the log timestamp and filter by the
-current time before counting, rather than using a fixed `tail` count:
-
-```diff
-diff --git a/bin/monitor.sh b/bin/monitor.sh
---- a/bin/monitor.sh
-+++ b/bin/monitor.sh
-@@
--        tail -1000 "$auth_log" 2>/dev/null | \
-+        awk -v now="$(date +%s)" '... keep only records in the configured window ...' \
-            grep -E 'Failed password|authentication failure' | \
-```
-
-## Splunk input paths and field names do not match monitor output
-
-Locations: `splunk/inputs.conf:5,15,116`, `splunk/props.conf:15-18`, and
-the searches in `splunk/savedsearches.conf`.
-
-What happens: the monitor writes newline-delimited JSON to
-`/var/log/ids/alerts.json` with fields `timestamp`, `hostname`, `severity`,
-`category`, `description` and optional `details`. The Splunk input file points
-at `detection.json` and an absent `ids-monitor.sh`, while the field extraction
-and saved searches use names such as `event_type`, `source_ip`,
-`threat_category` and `process_name`. The checked-in monitor does not emit
-those names.
-
-Reproduce by running `sh tools/container_run.sh` and comparing one printed
-alert record with the paths and searches above. Splunk itself was not run in
-this workspace.
-
-The fix I would have made starts with aligning the primary input and JSON
-field names:
-
-```diff
-diff --git a/splunk/inputs.conf b/splunk/inputs.conf
---- a/splunk/inputs.conf
-+++ b/splunk/inputs.conf
-@@
--[monitor:///var/log/ids/detection.json]
-+[monitor:///var/log/ids/alerts.json]
-```
-
-The saved searches and dashboard would then need a deliberate second change:
-either query `category` and parse `details`, or change the monitor schema and
-measure that new contract. This pass makes neither behaviour change.
-
-## The test summary counts source lines, not test results
-
-Location: `tests/test.sh:215-217`.
-
-What happens: the summary searches the script itself for lines beginning with
-the literal text `[PASS]` or `[FAIL]`. The test functions print those tokens at
-runtime, but the source lines begin with `pass()` and `fail()`, so the summary
-does not count the results it just produced.
-
-Reproduce by running the test in an installed test environment and observing
-that the summary counters are based on `$0`, not the test output stream.
-
-The fix I would have made is to increment counters in the `pass` and `fail`
-functions:
-
-```diff
-diff --git a/tests/test.sh b/tests/test.sh
---- a/tests/test.sh
-+++ b/tests/test.sh
-@@
-+passed=0
-+failed=0
- pass() { printf '[PASS] %s\n' "$*"; passed=$((passed + 1)); }
- fail() { printf '[FAIL] %s\n' "$*"; failed=$((failed + 1)); }
-@@
--passed=$(grep -c '^\[PASS\]' "$0" 2>/dev/null || printf "0")
--failed=$(grep -c '^\[FAIL\]' "$0" 2>/dev/null || printf "0")
-```
-
-## Ansible references absent roles, includes and templates
-
-Locations: `playbooks/site.yml:20-28,40-49,51-68`,
-`roles/ids_baseline/tasks/main.yml:20-48`,
-`roles/ids_config/tasks/main.yml:14-43` and
-`roles/ids_monitor/tasks/deploy_scripts.yml:33-40`.
-
-What happens: the main playbook includes files below a root `tasks/` and
-`handlers/` path that are not present, and names `ids_alerts` and `ids_splunk`
-roles that are not present. Other roles reference missing templates and call
-`baseline.sh` with `--generate`, `--verify`, `--output` and `--baseline`
-options that the checked-in shell script does not parse.
-
-Reproduce with a vault password configured, then run:
-
-```sh
-ansible-playbook --syntax-check -i inventory/staging/hosts.yml \
-  playbooks/site.yml
-```
-
-In this workspace that check was blocked earlier by the configured but absent
-`~/.ansible/vault_pass.txt`; static path inspection still shows the missing
-references listed above. No Ansible target host was contacted.
-
-The fix I would have made is to either add the referenced role/task/template
-files or reduce the playbooks to the implementation that actually exists. A
-minimal direction would remove the absent roles and root includes until they
-have real implementations:
-
-```diff
-diff --git a/playbooks/site.yml b/playbooks/site.yml
---- a/playbooks/site.yml
-+++ b/playbooks/site.yml
-@@
--      ansible.builtin.include_tasks: ../tasks/backup.yml
-+      # Keep only a task file that exists in this repository.
-@@
--    - role: ids_alerts
--    - role: ids_splunk
-+    # Add these roles only after their task and template trees exist.
-```
-
-## The legacy installation guide names another layout
-
-Location: `docs/INSTALLATION.md:35-75,80-137,154-185`.
-
-What happens: the guide uses names such as `ids-monitor.sh`,
-`ids-baseline.sh`, `ids-realtime-alert.sh`, `splunk-config/` and
-`splunk-dashboards/`, while the current checkout uses `bin/monitor.sh`,
-`bin/baseline.sh`, `bin/alert.sh` and `splunk/`. Its commands therefore do not
-describe the files that are actually present. The warning at the top of that
-document now labels it as legacy; the commands themselves remain unchanged.
-
-Reproduce by comparing the guide's copy commands with the tracked file list:
-
-```sh
-git ls-files bin splunk docs/INSTALLATION.md
-```
-
-The fix I would have made is to replace the guide with the current, measured
-paths and to keep unverified host installation steps out of the quick start:
-
-```diff
-diff --git a/docs/INSTALLATION.md b/docs/INSTALLATION.md
---- a/docs/INSTALLATION.md
-+++ b/docs/INSTALLATION.md
-@@
--cp ids-monitor.sh /opt/ids/
--cp ids-baseline.sh /opt/ids/
--cp ids-realtime-alert.sh /opt/ids/
-+cp bin/monitor.sh /opt/ids/
-+cp bin/baseline.sh /opt/ids/
-+cp bin/alert.sh /opt/ids/
-```
-
-## The Ansible README presents the intended tree as complete
-
-Location: `README_ANSIBLE.md:5-85`.
-
-What happens: the README describes roles and deployment behavior that are not
-all present in the checkout, including the alert and Splunk role layers. The
-new verification note at the top points readers to the source-backed Ansible
-write-up; the intended examples remain unchanged.
-
-Reproduce by comparing the README's role tree with:
-
-```sh
-find roles -type f -print
-git ls-files playbooks roles tasks handlers
-```
-
-The fix I would have made is to label the guide as intended until the role tree
-and its referenced templates exist:
-
-```diff
-diff --git a/README_ANSIBLE.md b/README_ANSIBLE.md
---- a/README_ANSIBLE.md
-+++ b/README_ANSIBLE.md
-@@
-+> Verification note: this document describes the intended Ansible layout,
-+> not a verified deployment of the current checkout.
-```
+**Possible fix:** `grep -v ... || true`, or remove the test line with `sed -i`.
