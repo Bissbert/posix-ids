@@ -1,0 +1,9 @@
+[Unit]
+Description=POSIX IDS baseline snapshot
+After=local-fs.target
+
+[Service]
+Type=oneshot
+# -S refreshes the snapshot only; the monitor baseline is never rewritten
+# on a schedule.
+ExecStart={{ ids_base_path }}/bin/baseline.sh -c {{ ids_config_path }}/ids.conf -S

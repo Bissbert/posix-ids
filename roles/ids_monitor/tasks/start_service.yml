@@ -1,32 +1,22 @@
 ---
-# Start monitoring service
+# Start the monitor. The playbooks include this after the baseline exists,
+# because the monitor raises a critical alert on every run without one.
 - name: Start IDS service (systemd)
   ansible.builtin.systemd:
     name: ids.service
     state: "{{ ids_service_state }}"
     enabled: "{{ ids_service_enabled }}"
+    daemon_reload: yes
   when: ids_service_type == "systemd"
-  register: service_start
-  tags: [service, start]
-
-- name: Start IDS service (init.d)
-  ansible.builtin.service:
-    name: ids
-    state: "{{ ids_service_state }}"
-    enabled: "{{ ids_service_enabled }}"
-  when: ids_service_type == "initd"
-  register: service_start
   tags: [service, start]
 
 - name: Verify service is running
   ansible.builtin.shell: |
-    sleep 5
     if [ "{{ ids_service_type }}" = "systemd" ]; then
+      sleep 5
       systemctl is-active ids.service
-    elif [ "{{ ids_service_type }}" = "cron" ]; then
-      crontab -u {{ ids_user }} -l | grep -q "IDS Monitoring"
     else
-      service ids status
+      crontab -u {{ ids_user }} -l | grep -q "IDS Monitoring"
     fi
   changed_when: false
   when: ids_service_state == "started"

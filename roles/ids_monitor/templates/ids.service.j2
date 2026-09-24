@@ -8,9 +8,6 @@ Type=forking
 User={{ ids_user }}
 Group={{ ids_group }}
 WorkingDirectory={{ ids_base_path }}
-Environment="IDS_HOME={{ ids_base_path }}"
-Environment="IDS_LOG={{ ids_log_path }}"
-Environment="IDS_CONFIG={{ ids_config_path }}/ids.conf"
 
 # Pre-start checks
 ExecStartPre=/bin/sh -c 'test -x {{ ids_base_path }}/bin/monitor.sh'
@@ -19,7 +16,7 @@ ExecStartPre=/bin/sh -c 'test -r {{ ids_config_path }}/ids.conf'
 # Main service
 ExecStart={{ ids_base_path }}/bin/ids-wrapper.sh start
 ExecStop={{ ids_base_path }}/bin/ids-wrapper.sh stop
-ExecReload=/bin/kill -HUP $MAINPID
+# No ExecReload: monitor.sh exits on SIGHUP, so a restart re-reads ids.conf.
 
 # Process management
 PIDFile=/var/run/ids/monitor.pid

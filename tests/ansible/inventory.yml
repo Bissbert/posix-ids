@@ -1,0 +1,19 @@
+---
+# Inventory for tests/ansible/deploy.sh: the container deploys to itself.
+all:
+  children:
+    ids_servers:
+      hosts:
+        ids-test:
+          ansible_connection: local
+          ansible_python_interpreter: /usr/local/bin/python3
+      vars:
+        ids_environment: test
+        ids_service_type: cron
+        ids_service_enabled: true
+        ids_service_state: started
+        # A container cannot set sysctls or run auditd.
+        ids_tune_kernel: false
+        ids_enable_auditd: false
+        ids_alert_enabled: false
+        ids_alert_email: root@localhost

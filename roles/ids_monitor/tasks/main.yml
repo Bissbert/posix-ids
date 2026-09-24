@@ -4,6 +4,12 @@
   ansible.builtin.include_tasks: deploy_scripts.yml
   tags: [monitor, deploy]
 
+- name: Check the service type
+  ansible.builtin.assert:
+    that: ids_service_type in ["systemd", "cron"]
+    fail_msg: "ids_service_type must be systemd or cron, not {{ ids_service_type }}"
+  tags: [monitor, service]
+
 - name: Configure service management
   ansible.builtin.include_tasks: "service_{{ ids_service_type }}.yml"
   tags: [monitor, service]
@@ -12,7 +18,3 @@
   ansible.builtin.include_tasks: validate.yml
   tags: [monitor, validate]
 
-- name: Start monitoring service
-  ansible.builtin.include_tasks: start_service.yml
-  when: ids_service_state == "started"
-  tags: [monitor, service]

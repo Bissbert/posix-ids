@@ -1,79 +1,68 @@
 #!/bin/sh
-# Managed by Ansible - Main IDS Configuration
-# POSIX-compliant configuration file
+# Managed by Ansible - IDS configuration
+# monitor.sh, baseline.sh and alert.sh read this file with -c. The
+# variable names match config/ids.conf.
+# Format: KEY=VALUE (no spaces around =)
 
-# Base paths
-IDS_HOME="{{ ids_base_path }}"
-IDS_LOG="{{ ids_log_path }}"
-IDS_CONFIG="{{ ids_config_path }}"
-IDS_LIB="/var/lib/ids"
-
-# Logging
-LOG_LEVEL="{{ ids_log_level }}"
-LOG_FORMAT="{{ ids_log_format }}"
-LOG_MAX_SIZE="{{ ids_log_max_size }}"
-LOG_ROTATE="{{ ids_log_rotate_count }}"
-
-# Monitoring intervals (seconds)
-CHECK_INTERVAL="{{ ids_check_interval }}"
-BASELINE_INTERVAL="{{ ids_baseline_interval }}"
-
-# Performance
-MAX_PARALLEL_CHECKS="{{ ids_performance.max_parallel_checks }}"
-CHECK_TIMEOUT="{{ ids_performance.check_timeout }}"
-CACHE_ENABLED="{{ ids_performance.cache_enabled | lower }}"
-CACHE_TTL="{{ ids_performance.cache_ttl }}"
-
-# Alert settings
-ALERT_ENABLED="{{ ids_alert_enabled | lower }}"
-ALERT_WEBHOOK="{{ ids_alert_webhook | default('') }}"
-ALERT_EMAIL="{{ ids_alert_email | default('') }}"
-ALERT_THROTTLE=300  # Minimum seconds between duplicate alerts
-
-# System thresholds
-CPU_WARNING="{{ ids_thresholds.cpu_warning }}"
-CPU_CRITICAL="{{ ids_thresholds.cpu_critical }}"
-MEM_WARNING="{{ ids_thresholds.memory_warning }}"
-MEM_CRITICAL="{{ ids_thresholds.memory_critical }}"
-DISK_WARNING="{{ ids_thresholds.disk_warning }}"
-DISK_CRITICAL="{{ ids_thresholds.disk_critical }}"
-LOAD_WARNING="{{ ids_thresholds.load_warning }}"
-LOAD_CRITICAL="{{ ids_thresholds.load_critical }}"
-
-# Security thresholds
-FAILED_LOGIN_THRESHOLD="{{ ids_thresholds.failed_login_threshold }}"
-PORT_SCAN_THRESHOLD="{{ ids_thresholds.port_scan_threshold }}"
-FILE_CHANGE_THRESHOLD="{{ ids_thresholds.file_change_threshold }}"
-
-# Check modules
-{% for check, config in ids_checks.items() %}
-CHECK_{{ check | upper }}_ENABLED="{{ config.enabled | lower }}"
-CHECK_{{ check | upper }}_INTERVAL="{{ config.interval }}"
-CHECK_{{ check | upper }}_PRIORITY="{{ config.priority }}"
-{% endfor %}
-
-# Baseline configuration
-BASELINE_AUTO_UPDATE="{{ ids_baseline.auto_update | lower }}"
-BASELINE_UPDATE_SCHEDULE="{{ ids_baseline.update_schedule }}"
-BASELINE_EXCLUSIONS="{{ ids_baseline.exclusions | join(':') }}"
-
-# Environment detection
-OS_FAMILY="{{ ansible_os_family }}"
-OS_DISTRIBUTION="{{ ansible_distribution }}"
-OS_VERSION="{{ ansible_distribution_version }}"
+# System Identification
 HOSTNAME="{{ ansible_hostname }}"
-FQDN="{{ ansible_fqdn }}"
 
-# Role-specific settings
-IDS_ROLE="{{ ids_role | default('default') }}"
-ENVIRONMENT="{{ environment | default('production') }}"
+# Paths. IDS_HOME is where the monitor keeps logs and state; the scripts
+# themselves are installed under {{ ids_base_path }}.
+IDS_HOME="{{ ids_log_path }}"
+BASELINE_FILE="{{ ids_baseline_file }}"
+ALERT_LOG="{{ ids_alert_log }}"
+MONITOR_LOG="{{ ids_monitor_log }}"
 
-# Debug settings
-DEBUG_ENABLED="{{ ids_debug_enabled | default(false) | lower }}"
-VERBOSE_LOGGING="{{ ids_verbose_logging | default(false) | lower }}"
+# Log rotation
+MAX_LOG_SIZE={{ ids_max_log_size }}
+MAX_LOG_FILES={{ ids_max_log_files }}
 
-# Export all variables
-export IDS_HOME IDS_LOG IDS_CONFIG IDS_LIB
-export LOG_LEVEL LOG_FORMAT LOG_MAX_SIZE LOG_ROTATE
-export CHECK_INTERVAL BASELINE_INTERVAL
-export ALERT_ENABLED ALERT_WEBHOOK ALERT_EMAIL
+# Network Monitoring
+PORT_SCAN_THRESHOLD={{ ids_port_scan_threshold }}
+BRUTE_FORCE_THRESHOLD={{ ids_brute_force_threshold }}
+OUTBOUND_PORT_WHITELIST="{{ ids_outbound_port_whitelist }}"
+
+# File System Monitoring
+CRITICAL_FILES="{{ ids_critical_files | join(' ') }}"
+CRITICAL_DIRS="{{ ids_critical_dirs | join(' ') }}"
+WEB_DIRS="{{ ids_web_dirs | join(' ') }}"
+
+# Authentication
+MAX_FAILED_LOGINS={{ ids_max_failed_logins }}
+SUDO_ANOMALY_THRESHOLD={{ ids_sudo_anomaly_threshold }}
+AUTH_WINDOW={{ ids_auth_window }}
+SUDO_WINDOW={{ ids_sudo_window }}
+
+# Process Monitoring
+CPU_THRESHOLD={{ ids_cpu_threshold }}
+MEM_THRESHOLD={{ ids_mem_threshold }}
+DISK_THRESHOLD={{ ids_disk_threshold }}
+PROC_COUNT_THRESHOLD={{ ids_proc_count_threshold }}
+
+# Cryptominer signatures
+MINER_PATTERNS="{{ ids_miner_patterns }}"
+
+# Timing
+CHECK_INTERVAL={{ ids_check_interval }}
+BASELINE_AGE_WARN={{ ids_baseline_age_warn }}
+
+# Severity Levels
+SEV_CRITICAL="critical"
+SEV_HIGH="high"
+SEV_MEDIUM="medium"
+SEV_LOW="low"
+SEV_INFO="info"
+
+# Alert Methods
+ALERT_TO_SYSLOG={{ 1 if ids_alert_to_syslog | bool else 0 }}
+ALERT_TO_FILE={{ 1 if ids_alert_to_file | bool else 0 }}
+ALERT_TO_STDOUT=0
+
+# alert.sh destinations; its -w and -e options still take precedence
+{% if ids_alert_webhook | default('') %}
+WEBHOOK_URL=${WEBHOOK_URL:-"{{ ids_alert_webhook }}"}
+{% endif %}
+{% if ids_alert_email | default('') %}
+EMAIL_TO=${EMAIL_TO:-"{{ ids_alert_email }}"}
+{% endif %}

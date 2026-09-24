@@ -1,0 +1,9 @@
+{
+  "host": "{{ ansible_hostname }}",
+  "ids_version": "{{ ids_version | default('unknown') }}",
+  "baseline_file": "{{ ids_baseline_file }}",
+  "baseline_exists": {{ baseline_stat.stat.exists | to_json }},
+  "baseline_sha256": {{ (baseline_stat.stat.checksum | default(none)) | to_json }},
+  "baseline_mtime": {{ (baseline_stat.stat.mtime | default(none)) | to_json }},
+  "recorded_at": "{{ ansible_date_time.iso8601 }}"
+}

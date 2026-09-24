@@ -1,0 +1,21 @@
+#!/bin/sh
+# Managed by Ansible - IDS cron entry point
+# monitor:  one monitor.sh pass against the Ansible configuration
+# baseline: refresh the baseline.sh snapshot. The monitor baseline is left
+#           alone, so a nightly run cannot accept a tampered file.
+
+IDS_BASE="{{ ids_base_path }}"
+IDS_CONFIG="{{ ids_config_path }}/ids.conf"
+
+case "${1:-}" in
+    monitor)
+        exec "$IDS_BASE/bin/monitor.sh" -c "$IDS_CONFIG" -1
+        ;;
+    baseline)
+        exec "$IDS_BASE/bin/baseline.sh" -c "$IDS_CONFIG" -S
+        ;;
+    *)
+        echo "Usage: $0 {monitor|baseline}" >&2
+        exit 2
+        ;;
+esac

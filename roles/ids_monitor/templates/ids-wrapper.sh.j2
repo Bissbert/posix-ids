@@ -4,13 +4,12 @@
 
 set -e
 
-IDS_HOME="{{ ids_base_path }}"
+# IDS_BASE is the install directory. The monitor reads IDS_HOME (its log
+# and state directory) from the configuration passed with -c.
+IDS_BASE="{{ ids_base_path }}"
 IDS_LOG="{{ ids_log_path }}"
 IDS_CONFIG="{{ ids_config_path }}/ids.conf"
 IDS_PIDFILE="/var/run/ids/monitor.pid"
-
-# Source configuration
-[ -f "$IDS_CONFIG" ] && . "$IDS_CONFIG"
 
 # Logging function
 log() {
@@ -41,7 +40,7 @@ start() {
     mkdir -p "$(dirname "$IDS_PIDFILE")"
 
     # Start monitor in background
-    nohup "$IDS_HOME/bin/monitor.sh" >> "$IDS_LOG/monitor.log" 2>&1 &
+    nohup "$IDS_BASE/bin/monitor.sh" -c "$IDS_CONFIG" -d >> "$IDS_LOG/monitor.log" 2>&1 &
     echo $! > "$IDS_PIDFILE"
 
     log "IDS monitoring started with PID $(cat "$IDS_PIDFILE")"

@@ -1,0 +1,21 @@
+---
+# Handlers shared by the IDS roles. Every play that deploys the IDS runs
+# ids_base first, so these names resolve for ids_config and ids_monitor.
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: yes
+  when: ids_service_type == "systemd"
+  listen: "reload systemd"
+
+# Cron deployments start a fresh monitor run on the next schedule, so only
+# the systemd service needs a restart.
+- name: restart ids
+  ansible.builtin.systemd:
+    name: ids.service
+    state: restarted
+    daemon_reload: yes
+  when:
+    - ids_service_type == "systemd"
+    - ids_service_state | default('started') == "started"
+  listen: "restart ids"
+

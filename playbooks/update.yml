@@ -69,6 +69,8 @@
     - name: Update configuration templates
       ansible.builtin.include_role:
         name: ids_config
+        # public: later roles use its defaults (ids_check_interval, paths)
+        public: true
       tags: [config]
 
     - name: Update VERSION file
