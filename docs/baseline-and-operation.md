@@ -2,27 +2,35 @@
 
 [← back to the overview](../README.md)
 
-The repository has two related but currently incompatible baseline concepts.
-`bin/baseline.sh` is a broad snapshot generator under `/var/lib/ids/baseline`.
-`bin/monitor.sh` is a narrow live checker that expects a flat file at
-`/var/log/ids/baseline.dat` for its critical-file checksum comparison.
+`bin/baseline.sh` writes two things. With `-n` it writes the monitor baseline:
+the `sha256sum` lines for `CRITICAL_FILES` at `BASELINE_FILE`
+(`/var/log/ids/baseline.dat`), which `bin/monitor.sh` compares on every pass.
+With `-S` it writes the broad review snapshot under `/var/lib/ids/baseline`.
+Without either flag it writes both. `-V` compares `CRITICAL_FILES` with the
+monitor baseline and exits 0 when nothing changed, 1 when a recorded file
+changed or disappeared, and 2 when there is no baseline.
 
 ```mermaid
 flowchart TD
     S["bin/setup.sh"] --> I["install scripts and config"]
     I --> B["bin/baseline.sh"]
-    B --> L["/var/lib/ids/baseline/<br/>hashes, configs and system snapshots"]
+    B -- "-n" --> F["/var/log/ids/baseline.dat<br/>sha256 of CRITICAL_FILES"]
+    B -- "-S" --> L["/var/lib/ids/baseline/<br/>hashes, configs and system snapshots"]
     M["bin/monitor.sh"] --> C["config/ids.conf"]
-    C --> F["/var/log/ids/baseline.dat"]
+    C --> F
     F --> K["critical-file checksum check"]
-    L -. "not consumed by that check" .-> K
 
     style S fill:#1f6feb,stroke:#58a6ff,color:#fff
     style B fill:#9e6a03,stroke:#d29922,color:#fff
     style M fill:#238636,stroke:#3fb950,color:#fff
 ```
 
-## What the broad generator records
+The nightly job that `bin/setup.sh` installs, and the Ansible timer and cron
+wrapper, run `-S` only. Rewriting the monitor baseline on a schedule would
+accept any change to a critical file within a day, so that stays a manual
+step after a reviewed change.
+
+## What the review snapshot records
 
 `bin/baseline.sh` writes a timestamped directory tree containing:
 
@@ -40,8 +48,8 @@ flowchart TD
 
 The generator also attempts to collect optional command output such as
 `ifconfig`, `ip`, `netstat`, `ss`, `iptables`, `lsof`, `free` and `mount`. A
-missing optional command can leave an incomplete snapshot; the script does not
-turn that snapshot into the flat file consumed by the live monitor.
+missing optional command can leave an incomplete snapshot. The monitor does
+not read the snapshot.
 
 ## Runtime state
 
@@ -65,20 +73,14 @@ because it reads and writes `/var/log/ids` and inspects host security state.
 ## Service and scheduling paths
 
 The source installer creates a systemd unit when systemd is present, otherwise
-an init script, and it writes a cron entry for baseline generation. In a Debian
-container without systemd it installed all scripts and the init script and
-exited 0 (see [Measurement](measurement.md#installer)). The Ansible roles
-separately describe systemd, initd and cron deployment, but they reference
-missing files and baseline options; see
-[bug 7](BUGS-FOUND.md#7-ansible-references-absent-roles-includes-and-templates).
+an init script, and it writes a nightly cron entry for `baseline.sh -S`. In a
+Debian container without systemd it installed all scripts and the init script
+and exited 0 (see [Measurement](measurement.md#installer)). The Ansible roles
+deploy with systemd or cron; see [Ansible deployment](ansible-deployment.md).
 
 ## Operational limitations
 
-- A generated baseline is not automatically useful to the monitor's checksum
-  branch because the two scripts use different locations and formats.
 - The generated baseline contains sensitive material, including copies of
   account and configuration files. It must be protected as host security data.
 - The monitor's `BASELINE_AGE_WARN` setting is loaded but no check in
   `monitor.sh` uses it to emit an age warning.
-- The Ansible deployment is documented here as a code path, not a working
-  installation procedure (bug 7).

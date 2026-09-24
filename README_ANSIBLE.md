@@ -60,8 +60,12 @@ boundaries.
    chmod 600 ~/.ansible/vault_pass.txt
 
    # Encrypt secrets file
-   ansible-vault encrypt group_vars/all/vault.yml
+   ansible-vault encrypt playbooks/group_vars/all/vault.yml
    ```
+
+   `ansible.cfg` does not name the password file, so pass
+   `--vault-password-file ~/.ansible/vault_pass.txt` to `ansible-playbook`
+   when the inventory uses vault variables.
 
 3. **Deploy IDS**:
    ```bash
@@ -87,26 +91,22 @@ boundaries.
 │   │   └── hosts.yml
 │   └── staging/              # Staging environment
 │       └── hosts.yml
-├── group_vars/
-│   └── all/
-│       ├── main.yml          # Global variables
-│       └── vault.yml         # Encrypted secrets
 ├── playbooks/
+│   ├── group_vars/
+│   │   └── all/
+│   │       ├── main.yml     # Global variables
+│   │       └── vault.yml    # Encrypted secrets (you create it)
 │   ├── site.yml             # Complete deployment
 │   ├── deploy.yml           # Quick deployment
 │   ├── update.yml           # Update existing installations
 │   ├── baseline.yml         # Baseline management
 │   ├── check.yml            # Health checks
 │   └── remove.yml           # Uninstall IDS
-├── roles/
-│   ├── ids_base/            # Core installation
-│   ├── ids_monitor/         # Monitoring deployment
-│   ├── ids_config/          # Configuration management
-│   ├── ids_alerts/          # Alert configuration
-│   ├── ids_baseline/        # Baseline management
-│   └── ids_splunk/          # Splunk integration
-└── handlers/
-    └── main.yml             # Global handlers
+└── roles/
+    ├── ids_base/            # Core installation and shared handlers
+    ├── ids_monitor/         # Monitoring deployment
+    ├── ids_config/          # Configuration management
+    └── ids_baseline/        # Baseline management
 ```
 
 ## Playbook Usage
@@ -166,7 +166,7 @@ ansible-playbook -i inventory/production playbooks/remove.yml \
 
 ### Key Variables
 
-Edit `group_vars/all/main.yml` for global settings:
+Edit `playbooks/group_vars/all/main.yml` for global settings:
 
 ```yaml
 # Installation paths
@@ -175,7 +175,7 @@ ids_log_path: /var/log/ids
 ids_config_path: /etc/ids
 
 # Service configuration
-ids_service_type: systemd  # systemd, initd, or cron
+ids_service_type: systemd  # systemd or cron
 ids_check_interval: 300    # seconds
 
 # Alert configuration
@@ -218,10 +218,10 @@ Store sensitive data in encrypted vault:
 
 ```bash
 # Edit vault file
-ansible-vault edit group_vars/all/vault.yml
+ansible-vault edit playbooks/group_vars/all/vault.yml
 
 # View vault contents
-ansible-vault view group_vars/all/vault.yml
+ansible-vault view playbooks/group_vars/all/vault.yml
 ```
 
 ## Advanced Usage
@@ -266,7 +266,7 @@ splunk_port: 9997
 Add custom monitoring checks:
 
 1. Create check script in `roles/ids_config/templates/checks/`
-2. Add to configuration in `group_vars/all/main.yml`:
+2. Add to configuration in `playbooks/group_vars/all/main.yml`:
    ```yaml
    ids_checks:
      custom_check:
