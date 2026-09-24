@@ -250,8 +250,10 @@ fi
 info ""
 info "Setting up cron job for baseline updates..."
 cron_file="/etc/cron.d/ids-baseline"
-cron_content="# IDS Baseline Generation - Daily at 2 AM
-0 2 * * * $IDS_USER $PREFIX/bin/ids_baseline -c $CONFIG_DIR/ids_config.conf >/dev/null 2>&1"
+# -S refreshes the review snapshot only. Re-writing the monitor baseline
+# every night would accept any change to a critical file within a day.
+cron_content="# IDS Baseline Snapshot - Daily at 2 AM
+0 2 * * * $IDS_USER $PREFIX/bin/ids_baseline -c $CONFIG_DIR/ids_config.conf -S >/dev/null 2>&1"
 
 if [ "$SIMULATE" = "1" ]; then
     info "[SIMULATE] Would create cron job: $cron_file"
