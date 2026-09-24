@@ -66,7 +66,7 @@ section "baseline producer and monitor input"
 grep -n '^BASELINE_FILE' /etc/ids/ids_config.conf
 sh bin/baseline.sh -c /etc/ids/ids_config.conf -n; echo "baseline.sh -n  exit=$?"
 printf '/var/log/ids/baseline.dat (monitor.sh reads): '
-[ -f /var/log/ids/baseline.dat ] && echo "present, $(wc -l < /var/log/ids/baseline.dat) entries" || echo absent
+[ -f /var/log/ids/baseline.dat ] && echo "present, $(grep -vc "^#" /var/log/ids/baseline.dat) entries" || echo absent
 sh bin/baseline.sh -c /etc/ids/ids_config.conf -V; echo "baseline.sh -V (unchanged)  exit=$?"
 
 section "syslog priority built from an IDS severity"

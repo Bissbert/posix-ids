@@ -51,7 +51,7 @@ cp /src/config/ids.conf /tmp/ids_config.conf
 
 # The monitor baseline comes from the checked-in generator.
 sh /src/bin/baseline.sh -c /tmp/ids_config.conf -n
-echo "baseline: $(wc -l < /var/log/ids/baseline.dat) entries in /var/log/ids/baseline.dat"
+echo "baseline: $(grep -vc "^#" /var/log/ids/baseline.dat) entries in /var/log/ids/baseline.dat"
 
 section "monitor syntax"
 sh -n /src/bin/monitor.sh
