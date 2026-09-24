@@ -1,4 +1,4 @@
-# Ansible deployment scaffolding
+# Ansible deployment
 
 [← back to the overview](../README.md)
 

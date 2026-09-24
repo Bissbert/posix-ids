@@ -1,10 +1,8 @@
 # POSIX IDS - Ansible Deployment Automation
 
-> Verification note: this document describes the intended Ansible layout, not
-> a verified deployment of the current checkout. The current role graph and
-> missing references are documented in
-> [`docs/ansible-deployment.md`](docs/ansible-deployment.md) and
-> [`docs/BUGS-FOUND.md`](docs/BUGS-FOUND.md).
+> Verification note: this document describes the intended Ansible layout. What
+> the current roles do and how they were tested is in
+> [`docs/ansible-deployment.md`](docs/ansible-deployment.md).
 
 Ansible automation scaffolding for deploying a POSIX-compliant Linux Intrusion
 Detection System across an infrastructure.

@@ -9,9 +9,8 @@ authentication anomalies, file and process changes, resource pressure, and
 selected network and configuration changes. The monitor keeps small state
 snapshots, writes newline-delimited JSON, and has a separate alert router for
 webhooks, email, and syslog. The repository also contains Ansible deployment
-scaffolding and Splunk configuration; those integration paths are described as
-they exist, including the mismatches recorded in
-[`docs/BUGS-FOUND.md`](docs/BUGS-FOUND.md).
+and Splunk configuration. Bugs are tracked as
+[GitHub issues](https://github.com/Bissbert/posix-ids/issues).
 
 ```mermaid
 flowchart LR

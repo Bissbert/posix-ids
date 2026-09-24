@@ -5,8 +5,8 @@
 > Legacy note: this guide describes an earlier installation layout and is not
 > a verified procedure for the current checkout. The current script names,
 > data flow and known defects are documented in the [overview](../README.md),
-> [baseline write-up](baseline-and-operation.md) and
-> [bug log](BUGS-FOUND.md).
+> the [baseline write-up](baseline-and-operation.md) and the
+> [GitHub issues](https://github.com/Bissbert/posix-ids/issues).
 
 ```mermaid
 flowchart LR
