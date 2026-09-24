@@ -1,104 +1,265 @@
-# How this was measured
+# Measurement
 
 [← back to the overview](../README.md)
 
-This pass reports source facts separately from runtime measurements. Source
-thresholds and paths in the component write-ups were read from the checked-in
-shell, configuration, Ansible and Splunk files. They are not performance
-claims. Runtime numbers below come from commands actually run in this
-workspace.
+Every number in this documentation comes from one script run in Linux
+containers:
+
+```sh
+sh tools/linux-run.sh > media/captures/linux-run.txt
+```
+
+[`tools/linux-run.sh`](../tools/linux-run.sh) mounts the repository read-only
+into a disposable `debian:12-slim` container, copies it, and runs the
+measurement script, the installer, the test script, the baseline generator and
+the syslog priorities. It then runs [`tools/container_run.sh`](../tools/container_run.sh), which
+exercises the monitor end to end in a second container. Nothing runs on the
+host. The full output is
+[`media/captures/linux-run.txt`](../media/captures/linux-run.txt); every block
+below is taken from it.
 
 ```mermaid
 flowchart LR
-    S["tools/measure.sh<br/>source and syntax facts"] --> R["recorded command output"]
-    C["tools/container_run.sh<br/>isolated Linux run"] --> R
-    R --> D["README and docs tables"]
-    R -. "not available" .-> E["host install, Splunk,<br/>external delivery"]
+    R["tools/linux-run.sh"] --> A["container 1<br/>measure.sh, setup.sh,<br/>tests/test.sh, baseline, syslog"]
+    R --> B["container 2<br/>tools/container_run.sh<br/>monitor end to end"]
+    A --> O["media/captures/linux-run.txt"]
+    B --> O
+    O --> D["README and docs"]
 
-    style S fill:#1f6feb,stroke:#58a6ff,color:#fff
-    style C fill:#238636,stroke:#3fb950,color:#fff
+    style R fill:#1f6feb,stroke:#58a6ff,color:#fff
+    style O fill:#238636,stroke:#3fb950,color:#fff
     style D fill:#8250df,stroke:#bc8cff,color:#fff
-    style E fill:#9e6a03,stroke:#d29922,color:#fff
 ```
 
-## Reproducible local measurements
+## Environment
 
-The script created for this pass is [`tools/measure.sh`](../tools/measure.sh).
-It uses Git's tracked-file list, `wc`, `awk` and `sh -n`; it does not install a
-dependency or write build output.
+| | |
+|---|---|
+| Kernel | Linux 6.5.11-linuxkit, aarch64 (Docker Desktop VM) |
+| Image | `debian:12-slim` (`sha256:3783cc01…906251`), Debian GNU/Linux 12 |
+| `/bin/sh` | `dash` |
+| Extra packages | `procps`, `net-tools` (and `git` for `measure.sh`) |
+| Date | 2026-09-24 |
 
-```sh
-sh tools/measure.sh
-```
+## Repository facts
 
-The observed output reported:
-
-| Measurement | Observed result | Provenance |
-|---|---:|---|
-| implementation shell and Jinja bytes | 73606 | `wc -c` over tracked source `*.sh` and `*.j2` files, excluding docs and measurement tools |
-| monitor check functions | 16 | `awk` over `bin/monitor.sh` function declarations |
-| shell syntax | pass | `sh -n` over tracked shell files and `tools/*.sh` |
-
-The help paths were also run directly:
-
-```sh
-sh bin/monitor.sh -h
-sh bin/alert.sh -h
-```
-
-Both printed their usage text and exited successfully. The command
-`sh bin/setup.sh -s` was run separately and exited with status `1` after the
-first missing installer source; that failure is documented in
-[`BUGS-FOUND.md`](BUGS-FOUND.md), not hidden from the quick start.
-
-## Isolated runtime measurement
-
-The container harness used for the end-to-end run is
-[`tools/container_run.sh`](../tools/container_run.sh). It mounts the repository
-read-only into a disposable `debian:12-slim` container, installs `procps` and
-`net-tools` inside that container, and invokes the checked-in `monitor.sh`
-directly. It does not call the broken installer and does not change the host.
-
-The harness creates a flat SHA-256 baseline specifically because that is the
-input format the monitor reads. This is measurement scaffolding, not a repair
-to `bin/baseline.sh`; the mismatch is recorded in the bug log.
-
-The run performed these observable stages:
+`tools/measure.sh` sums the tracked implementation `*.sh` and `*.j2` files
+(outside `README*`, `docs/`, `tools/` and `tests/`),
+counts the monitor's check functions, and runs `sh -n` on every tracked shell
+script:
 
 ```text
-cold monitor pass       -> state snapshots exist
-plant test artefacts    -> auth, web, SUID, user, process and config changes
-warm monitor pass       -> JSON records printed and counted
+implementation shell and Jinja bytes: 75576
+monitor check functions: 16
+shell syntax: pass
 ```
 
-The observed warm-pass results were:
+## Help output
 
-| Result | Value |
-|---|---:|
-| monitor exit status | 0 |
-| alert records written | 13 |
-| wall-clock delta | 257238750 ns |
+```text
+bin/monitor.sh -h  exit=0
+bin/alert.sh -h    exit=0
+```
 
-The same run printed records for brute force, critical-file modification,
-SUID/SGID, webshell, new user, failed logins, sudo usage, cryptominer, deleted
-binary, CPU usage, SSH configuration and cron configuration. The input fixture
-contained 12 failed-password lines and 15 sudo lines, so those output details
-are part of the run provenance rather than estimates.
+## Installer
 
-This is a single disposable-container run. The wall-clock value is not a
-benchmark and should not be generalized to another host, kernel, container
-runtime or log volume.
+`sh bin/setup.sh -s` (simulate) and then `sh bin/setup.sh` as root inside the
+container:
 
-## What was not measured
+```text
+=== bin/setup.sh -s (simulate)
+exit=0
+[INFO] [SIMULATE] Would install: bin/monitor.sh -> /usr/local/bin/ids_monitor (perms: 755)
+[INFO] [SIMULATE] Would install: bin/baseline.sh -> /usr/local/bin/ids_baseline (perms: 755)
+[INFO] [SIMULATE] Would install: bin/alert.sh -> /usr/local/bin/ids_alert (perms: 755)
+[INFO] [SIMULATE] Would install: ids_config.conf -> /etc/ids/ids_config.conf
 
-- No host installation was run: `bin/setup.sh -s` already fails on the missing
-  source name, and a real installation would write system paths.
-- No `bin/baseline.sh` run was performed on the host because it writes under
-  `/var/lib/ids` and reads sensitive system state.
-- No Ansible deployment or remote-host run was performed. Local syntax checking
-  was blocked by the configured but absent vault password file.
-- No Splunk instance, webhook, email server or syslog endpoint was available
-  for delivery verification.
-- No animation or generated image was made. The container captured structured
-  command output for measurements; the documentation therefore ships Mermaid
-  diagrams only rather than presenting a fabricated terminal recording.
+=== bin/setup.sh (real install, as root, inside this container)
+exit=0
+[INFO] Installed: /usr/local/bin/ids_monitor
+[INFO] Installed: /usr/local/bin/ids_baseline
+[INFO] Installed: /usr/local/bin/ids_alert
+[INFO] Installed: /etc/ids/ids_config.conf
+[INFO] Created init script: /etc/init.d/ids-monitor
+```
+
+The container has no systemd, so setup writes an init.d script instead of a
+unit.
+
+## Test script
+
+`sh tests/test.sh -c /etc/ids/ids_config.conf` in safe mode, once on the fresh
+install and once with an earlier record in `alerts.json`:
+
+```text
+=== tests/test.sh after a fresh install (empty alerts.json)
+exit=1
+last test started: Test 10: Service monitoring
+runtime [PASS] lines: 11
+runtime [FAIL] lines: 1
+[TEST] Tests run: 10
+[TEST] Passed: 11
+[TEST] Failed: 1
+[TEST] Result: SOME TESTS FAILED
+
+=== tests/test.sh with one earlier record in alerts.json
+exit=1
+last test started: Test 10: Service monitoring
+runtime [PASS] lines: 11
+runtime [FAIL] lines: 1
+[TEST] Tests run: 10
+[TEST] Passed: 11
+[TEST] Failed: 1
+[TEST] Result: SOME TESTS FAILED
+```
+
+Both runs reach Test 10. The one failure is Test 6: the container has no
+`/var/log/auth.log`.
+
+## Baseline
+
+`bin/baseline.sh -n` writes the monitor baseline, and `-V` compares the
+critical files with it straight away:
+
+```text
+=== baseline producer and monitor input
+10:BASELINE_FILE="/var/log/ids/baseline.dat"
+Writing monitor baseline: /var/log/ids/baseline.dat
+  2 files recorded
+baseline.sh -n  exit=0
+/var/log/ids/baseline.dat (monitor.sh reads): present, 2 entries
+OK        /etc/passwd
+OK        /etc/shadow
+ABSENT    /etc/sudoers
+ABSENT    /etc/ssh/sshd_config
+baseline.sh -V (unchanged)  exit=0
+```
+
+`/etc/sudoers` and `/etc/ssh/sshd_config` do not exist in the slim image, so
+they are not recorded and `-V` reports them as absent rather than missing.
+
+## Syslog priority
+
+`logger --no-act` validates each priority the monitor can pass without
+needing a syslog daemon; the old `security.<severity>` form is shown for
+comparison:
+
+```text
+=== syslog priority built from an IDS severity
+syslog_priority() {
+    case "$1" in
+        critical) printf 'auth.crit' ;;
+        high) printf 'auth.err' ;;
+        medium) printf 'auth.warning' ;;
+        low) printf 'auth.notice' ;;
+        *) printf 'auth.info' ;;
+    esac
+}
+logger -p auth.crit  exit=0
+logger -p auth.err  exit=0
+logger -p auth.warning  exit=0
+logger -p auth.notice  exit=0
+logger -p auth.info  exit=0
+logger -p security.medium  exit=1
+```
+
+## Monitor end to end
+
+`tools/container_run.sh` copies `config/ids.conf` unchanged (syslog on; the
+container runs no syslog daemon, so `logger` discards the messages), writes the
+baseline with `bin/baseline.sh -n`, and runs `bin/monitor.sh -1` twice.
+Between the passes it plants harmless test artefacts:
+
+```text
+  /var/log/auth.log         12 failed passwords from 203.0.113.9 (now)
+  /var/log/auth.log         12 failed passwords from 198.51.100.4 (two days ago)
+  /var/log/auth.log         15 sudo invocations (now)
+  /var/www/html/uploads.php eval() one-liner
+  /usr/bin/backdoor         mode 4755
+  /etc/passwd               new account eviluser (uid 1337)
+  /usr/local/bin/xmrig      running (a renamed sleep)
+  /tmp/ghost                running, binary deleted
+  /etc/ssh/sshd_config      PermitRootLogin yes
+  /etc/cron.d/implant       new cron entry
+```
+
+The failed passwords from 198.51.100.4 are dated two days back, outside
+`AUTH_WINDOW`, and raise no alert. The warm pass exited 0 and wrote 13 alert
+records:
+
+| Category | Record |
+|---|---|
+| authentication | Brute force attack detected |
+| filesystem | Critical file modified (×2) |
+| filesystem | New SUID/SGID file detected |
+| filesystem | Potential webshell detected |
+| authentication | New user created |
+| authentication | Excessive failed login attempts |
+| authentication | Unusual sudo activity |
+| process | Potential cryptominer detected |
+| process | Process running deleted binary |
+| resources | High CPU usage |
+| configuration | SSH configuration changed |
+| configuration | Cron configuration changed |
+
+```text
+== alerts by category and severity ==
+      3 filesystem critical
+      2 configuration high
+      2 authentication high
+      1 resources medium
+      1 process high
+      1 process critical
+      1 filesystem high
+      1 authentication medium
+      1 authentication critical
+
+== resource cost of one pass ==
+  wall clock (ns diff)      : 313626459
+```
+
+That is about 0.31 s for one pass in this container. It is one run, not a
+benchmark.
+
+`baseline.sh -V` after the planted changes:
+
+```text
+  CHANGED   /etc/passwd
+  OK        /etc/shadow
+  ABSENT    /etc/sudoers
+  CHANGED   /etc/ssh/sshd_config
+  exit status: 1
+```
+
+## Regression suite
+
+`sh tests/docker.sh` is separate from the capture. It builds two images
+(`debian:12-slim` with `procps`, `net-tools`, `cron` and `bsdutils`; and
+`python:3.12-slim` with ansible-core 2.17) and runs every test against a
+read-only mount of the repository:
+
+| Test | Covers | Checks |
+|---|---|---|
+| `tests/regression/baseline_producer.sh` | [#4](https://github.com/Bissbert/posix-ids/issues/4) | 19 |
+| `tests/regression/syslog_priority.sh` | [#5](https://github.com/Bissbert/posix-ids/issues/5) | 8 |
+| `tests/regression/auth_window.sh` | [#6](https://github.com/Bissbert/posix-ids/issues/6) | 9 |
+| `tests/static/splunk_fields.py` | [#7](https://github.com/Bissbert/posix-ids/issues/7) | 83 |
+| `tests/static/ansible_refs.py` | [#8](https://github.com/Bissbert/posix-ids/issues/8), [#12](https://github.com/Bissbert/posix-ids/issues/12), [#13](https://github.com/Bissbert/posix-ids/issues/13) | 74 |
+| `tests/ansible/deploy.sh` | [#8](https://github.com/Bissbert/posix-ids/issues/8), [#12](https://github.com/Bissbert/posix-ids/issues/12), [#13](https://github.com/Bissbert/posix-ids/issues/13) | 27 |
+| `tests/regression/test_script.sh` | [#9](https://github.com/Bissbert/posix-ids/issues/9) | 9 |
+| `tests/regression/grep_count.sh` | [#10](https://github.com/Bissbert/posix-ids/issues/10) | 4 |
+| `tests/regression/set_e_abort.sh` | [#11](https://github.com/Bissbert/posix-ids/issues/11) | 6 |
+
+```text
+239 checks passed, 0 failed
+```
+
+Each test was also run with its fix reverted, and each then failed.
+
+## Not covered
+
+- Ansible on remote hosts or with the systemd service type. The regression
+  suite deploys to `localhost` in a container with the cron service type.
+- Splunk, webhooks, email and remote syslog. None was available, so no alert
+  delivery was tested. The Splunk configuration is checked statically.
+- The monitor's daemon mode and the init.d service; only single passes ran.

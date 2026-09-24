@@ -1,0 +1,214 @@
+
+=== environment
+Debian GNU/Linux 12 (bookworm), Linux 6.5.11-linuxkit aarch64
+/bin/sh -> /usr/bin/dash
+
+=== tools/measure.sh
+implementation shell and Jinja bytes: 75576
+monitor check functions: 16
+shell syntax: pass
+monitor checks:
+  check_port_scans
+  check_brute_force
+  check_suspicious_connections
+  check_file_integrity
+  check_suid_changes
+  check_webshells
+  check_new_users
+  check_failed_logins
+  check_sudo_usage
+  check_cryptominers
+  check_hidden_processes
+  check_deleted_binaries
+  check_resource_usage
+  check_ssh_config
+  check_cron_changes
+  check_new_services
+
+=== help output
+bin/monitor.sh -h  exit=0
+bin/alert.sh -h    exit=0
+
+=== bin/setup.sh -s (simulate)
+exit=0
+[INFO] [SIMULATE] Would install: bin/monitor.sh -> /usr/local/bin/ids_monitor (perms: 755)
+[INFO] [SIMULATE] Would install: bin/baseline.sh -> /usr/local/bin/ids_baseline (perms: 755)
+[INFO] [SIMULATE] Would install: bin/alert.sh -> /usr/local/bin/ids_alert (perms: 755)
+[INFO] [SIMULATE] Would install: ids_config.conf -> /etc/ids/ids_config.conf
+
+=== bin/setup.sh (real install, as root, inside this container)
+exit=0
+[INFO] Installed: /usr/local/bin/ids_monitor
+[INFO] Installed: /usr/local/bin/ids_baseline
+[INFO] Installed: /usr/local/bin/ids_alert
+[INFO] Installed: /etc/ids/ids_config.conf
+[INFO] Created init script: /etc/init.d/ids-monitor
+-rw-r----- /etc/ids/ids_config.conf
+-rwxr-xr-x /usr/local/bin/ids_alert
+-rwxr-xr-x /usr/local/bin/ids_baseline
+-rwxr-xr-x /usr/local/bin/ids_monitor
+
+=== tests/test.sh after a fresh install (empty alerts.json)
+exit=1
+last test started: Test 10: Service monitoring
+runtime [PASS] lines: 11
+runtime [FAIL] lines: 1
+[TEST] Tests run: 10
+[TEST] Passed: 11
+[TEST] Failed: 1
+[TEST] Result: SOME TESTS FAILED
+
+=== tests/test.sh with one earlier record in alerts.json
+exit=1
+last test started: Test 10: Service monitoring
+runtime [PASS] lines: 11
+runtime [FAIL] lines: 1
+[TEST] Tests run: 10
+[TEST] Passed: 11
+[TEST] Failed: 1
+[TEST] Result: SOME TESTS FAILED
+
+=== baseline producer and monitor input
+10:BASELINE_FILE="/var/log/ids/baseline.dat"
+Writing monitor baseline: /var/log/ids/baseline.dat
+  2 files recorded
+baseline.sh -n  exit=0
+/var/log/ids/baseline.dat (monitor.sh reads): present, 2 entries
+OK        /etc/passwd
+OK        /etc/shadow
+ABSENT    /etc/sudoers
+ABSENT    /etc/ssh/sshd_config
+baseline.sh -V (unchanged)  exit=0
+
+=== syslog priority built from an IDS severity
+syslog_priority() {
+    case "$1" in
+        critical) printf 'auth.crit' ;;
+        high) printf 'auth.err' ;;
+        medium) printf 'auth.warning' ;;
+        low) printf 'auth.notice' ;;
+        *) printf 'auth.info' ;;
+    esac
+}
+logger -p auth.crit  exit=0
+logger -p auth.err  exit=0
+logger -p auth.warning  exit=0
+logger -p auth.notice  exit=0
+logger -p auth.info  exit=0
+logger -p security.medium  exit=1
+
+=== tools/container_run.sh
+
+== container ==
+image      : Debian GNU/Linux 12 (bookworm)
+/bin/sh    : /usr/bin/dash
+kernel     : Linux 6.5.11-linuxkit
+
+== tools present in the base image (before installing anything) ==
+awk          yes
+sed          yes
+grep         yes
+find         yes
+ps           NO
+netstat      NO
+ss           NO
+sha256sum    yes
+md5sum       yes
+diff         yes
+logger       yes
+top          NO
+df           yes
+wc           yes
+sort         yes
+uniq         yes
+tr           yes
+
+== installing procps + net-tools ==
+ps       -> /usr/bin/ps
+netstat  -> /usr/bin/netstat
+
+== preparing the checked-in monitor ==
+Writing monitor baseline: /var/log/ids/baseline.dat
+  3 files recorded
+baseline: 3 entries in /var/log/ids/baseline.dat
+
+== monitor syntax ==
+monitor syntax: pass
+
+== pass 1 (cold: no state files yet) ==
+  [INFO] Running single check
+  [INFO] Running security checks...
+alerts after pass 1: 1
+
+== planting artefacts the checks are supposed to notice ==
+  /var/log/auth.log         12 failed passwords from 203.0.113.9 (now)
+  /var/log/auth.log         12 failed passwords from 198.51.100.4 (two days ago)
+  /var/log/auth.log         15 sudo invocations (now)
+  /var/www/html/uploads.php eval() one-liner
+  /usr/bin/backdoor         mode 4755
+  /etc/passwd               new account eviluser (uid 1337)
+  /usr/local/bin/xmrig      running (a renamed sleep)
+  /tmp/ghost                running, binary deleted
+  /etc/ssh/sshd_config      PermitRootLogin yes
+  /etc/cron.d/implant       new cron entry
+
+== pass 2 (warm: state from pass 1 exists) ==
+  monitor output:
+  monitor diagnostics:
+    [INFO] Running single check
+    [INFO] Running security checks...
+  monitor exit status: 0
+
+== alert records written by pass 2 ==
+{"timestamp":"2026-09-24T18:40:52Z","hostname":"38663541229d","severity":"critical","category":"authentication","description":"Brute force attack detected","details":"IP: 203.0.113.9, Attempts: 12"}
+{"timestamp":"2026-09-24T18:40:52Z","hostname":"38663541229d","severity":"critical","category":"filesystem","description":"Critical file modified","details":"File: /etc/passwd"}
+{"timestamp":"2026-09-24T18:40:52Z","hostname":"38663541229d","severity":"critical","category":"filesystem","description":"Critical file modified","details":"File: /etc/ssh/sshd_config"}
+{"timestamp":"2026-09-24T18:40:52Z","hostname":"38663541229d","severity":"high","category":"filesystem","description":"New SUID/SGID file detected","details":"File: /usr/bin/backdoor, Perms: -rwsr-xr-x"}
+{"timestamp":"2026-09-24T18:40:52Z","hostname":"38663541229d","severity":"critical","category":"filesystem","description":"Potential webshell detected","details":"File: /var/www/html/uploads.php"}
+{"timestamp":"2026-09-24T18:40:52Z","hostname":"38663541229d","severity":"high","category":"authentication","description":"New user created","details":"User: eviluser, UID: 1337"}
+{"timestamp":"2026-09-24T18:40:52Z","hostname":"38663541229d","severity":"high","category":"authentication","description":"Excessive failed login attempts","details":"Count: 12"}
+{"timestamp":"2026-09-24T18:40:52Z","hostname":"38663541229d","severity":"medium","category":"authentication","description":"Unusual sudo activity","details":"Count: 15"}
+{"timestamp":"2026-09-24T18:40:53Z","hostname":"38663541229d","severity":"critical","category":"process","description":"Potential cryptominer detected","details":"Process: /usr/local/bin/xmrig, PID: 390"}
+{"timestamp":"2026-09-24T18:40:53Z","hostname":"38663541229d","severity":"high","category":"process","description":"Process running deleted binary","details":"PID: 392, CMD: /tmp/ghost 300 "}
+{"timestamp":"2026-09-24T18:40:53Z","hostname":"38663541229d","severity":"medium","category":"resources","description":"High CPU usage","details":"Usage: 100%"}
+{"timestamp":"2026-09-24T18:40:53Z","hostname":"38663541229d","severity":"high","category":"configuration","description":"SSH configuration changed","details":"/etc/ssh/sshd_config modified"}
+{"timestamp":"2026-09-24T18:40:53Z","hostname":"38663541229d","severity":"high","category":"configuration","description":"Cron configuration changed","details":"New or modified cron jobs detected"}
+
+== alerts by category and severity ==
+      3 filesystem critical
+      2 configuration high
+      2 authentication high
+      1 resources medium
+      1 process high
+      1 process critical
+      1 filesystem high
+      1 authentication medium
+      1 authentication critical
+
+== resource cost of one pass ==
+  wall clock (ns diff)      : 313626459
+
+== runtime files used by the measurement ==
+  /var/log/ids/:
+  total 12
+  -rw-r--r-- 1 root root 2443 Sep 24 18:40 alerts.json
+  -rw------- 1 root root  308 Sep 24 18:40 baseline.dat
+  drwxr-xr-x 2 root root 4096 Sep 24 18:40 state
+  
+  /var/log/ids/state/:
+  total 20
+  -rw-r--r-- 1 root root   0 Sep 24 18:40 brute_force.state
+  -rw-r--r-- 1 root root 392 Sep 24 18:40 cron_last.state
+  -rw-r--r-- 1 root root  11 Sep 24 18:40 last_check.state
+  -rw-r--r-- 1 root root   0 Sep 24 18:40 port_scan.state
+  -rw-r--r-- 1 root root   0 Sep 24 18:40 services_last.state
+  -rw-r--r-- 1 root root  28 Sep 24 18:40 ssh_last.state
+  -rw-r--r-- 1 root root 323 Sep 24 18:40 suid_last.state
+  -rw-r--r-- 1 root root 157 Sep 24 18:40 users_last.state
+
+== baseline.sh -V after the planted changes ==
+  CHANGED   /etc/passwd
+  OK        /etc/shadow
+  ABSENT    /etc/sudoers
+  CHANGED   /etc/ssh/sshd_config
+  exit status: 1

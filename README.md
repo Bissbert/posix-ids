@@ -9,9 +9,8 @@ authentication anomalies, file and process changes, resource pressure, and
 selected network and configuration changes. The monitor keeps small state
 snapshots, writes newline-delimited JSON, and has a separate alert router for
 webhooks, email, and syslog. The repository also contains Ansible deployment
-scaffolding and Splunk configuration; those integration paths are described as
-they exist, including the mismatches recorded in
-[`docs/BUGS-FOUND.md`](docs/BUGS-FOUND.md).
+and Splunk configuration. Bugs are tracked as
+[GitHub issues](https://github.com/Bissbert/posix-ids/issues).
 
 ```mermaid
 flowchart LR
@@ -41,46 +40,40 @@ cd posix-ids
 # Single server — manual install
 sudo ./bin/setup.sh
 
-# Multiple servers — Ansible (recommended)
-ansible-galaxy collection install -r collections/requirements.yml
-ansible-playbook -i inventory/production playbooks/site.yml
-
-# Verify it is running
-sudo tail -f /var/log/ids/alerts.json
+# One pass, then read the alerts
+sudo /usr/local/bin/ids_monitor -c /etc/ids/ids_config.conf -1
+sudo tail /var/log/ids/alerts.json
 ```
 
-### Verify without installing
+For several hosts, `playbooks/site.yml` deploys the same scripts with Ansible;
+see [docs/ansible-deployment.md](docs/ansible-deployment.md).
 
-These commands are the verified source-level and container-level entry points:
+### Try it in a container first
 
 ```sh
-# Check every tracked shell script and list the monitor checks.
-sh tools/measure.sh
+# Install, run the tests and check the baseline and syslog paths in a disposable Debian container.
+sh tools/linux-run.sh
 
-# Show the two directly runnable command interfaces.
-sh bin/monitor.sh -h
-sh bin/alert.sh -h
-
-# Run the monitor against harmless artefacts in a disposable Debian container.
+# Run the monitor against harmless test artefacts in a disposable Debian container.
 sh tools/container_run.sh
+
+# Regression suite: shell tests, static Splunk and Ansible checks, and an Ansible deploy.
+sh tests/docker.sh
 ```
 
-The container harness installs only its measurement utilities inside the
-throwaway container. It creates an isolated baseline, runs a cold pass, adds
-test artefacts, and runs a warm pass. It does not install anything on the host.
-`bin/setup.sh` previously named source files that were not in `bin/`; that
-has since been corrected on the default branch, so the install path above is
-the supported one. The container harness remains the way to exercise the
-monitor without touching a host.
+All three need Docker and change nothing on the host. The installer, the
+monitor and the test script all read and write system paths such as
+`/var/log/ids` and `/etc/ids`, so try them in a container before a real host.
 
 ## Components
 
 - `bin/monitor.sh` — continuous monitoring loop (daemon, oneshot, or interactive). Runs checks for brute-force attempts, port scans, file integrity, SUID changes, webshells, cryptominers, hidden processes, SSH/cron config drift, and resource exhaustion. Outputs newline-delimited JSON to `/var/log/ids/alerts.json`.
 - `bin/alert.sh` — reads the alert log and forwards events to a Slack-compatible webhook, email (`mail`/`sendmail`/`mailx`), or a TCP/local syslog endpoint.
-- `bin/baseline.sh` — captures SHA-256 checksums of critical binaries into a baseline file used by integrity checks.
-- `bin/setup.sh` — installs scripts, config, and a systemd unit (falls back to cron on non-systemd systems).
+- `bin/baseline.sh` — `-n` writes the SHA-256 baseline of the critical files that the monitor's integrity check reads, `-S` a broad review snapshot under `/var/lib/ids/baseline`, and `-V` verifies the files against the baseline. See [docs/baseline-and-operation.md](docs/baseline-and-operation.md).
+- `bin/setup.sh` — installs the scripts as `ids_monitor`, `ids_baseline` and `ids_alert`, the config as `/etc/ids/ids_config.conf`, a systemd unit (or an init.d script without systemd), the initial baseline, and a daily cron entry that refreshes the review snapshot.
 - `splunk/` — drop-in Splunk Universal Forwarder config (`inputs.conf`, `props.conf`, `savedsearches.conf`) plus a pre-built XML dashboard.
 - Ansible roles in `roles/` handle multi-host deployment, logrotate, sudoers, and systemd/cron service wiring.
+- `tests/` — `tests/test.sh` checks an installed host; `tests/docker.sh` runs the regression suite in containers.
 
 ## Architecture
 
@@ -110,29 +103,29 @@ flowchart TD
 ```
 
 The monitor runs once with `-1`, continuously in its default loop, or in
-daemon mode with `-d`. Its configured default interval is 60 seconds, but the
-current code does not apply a real-time filter to the authentication log
-counts; it uses fixed line counts instead.
+daemon mode with `-d`. Its configured default interval is 60 seconds. The
+authentication checks count log lines stamped within `AUTH_WINDOW` (300 s) or
+`SUDO_WINDOW` (3600 s).
 
 ## Capability table
 
 | Area | Implemented coverage | Severity emitted |
 |---|---|---|
 | Network | Current `netstat` connections: possible port scan and non-whitelisted remote ports | high / medium |
-| Authentication | Failed SSH/authentication lines, excessive failures, new `/etc/passwd` users, and sudo line counts | critical / high / medium |
+| Authentication | Failed SSH/authentication lines and sudo use within a time window, and new `/etc/passwd` users | critical / high / medium |
 | Filesystem | Critical-file checksums, new SUID/SGID files in selected system directories, and PHP webshell patterns | critical / high |
 | Processes | Miner-name matches, `/proc` versus `ps` PID differences, and deleted executable links | critical / high |
 | Resources | CPU, memory, disk, and process-count thresholds | medium / high |
 | Configuration | Selected SSH settings, cron snapshots, and newly observed running services | high / medium |
 | Alert routing | Newline-delimited JSON plus optional webhook, email, and syslog delivery | configured by caller |
-| Splunk | Configuration files for inputs, JSON parsing, saved searches, and a dashboard | intent only; see limitations |
+| Splunk | Configuration files for inputs, JSON parsing, saved searches, and a dashboard | checked statically; not run |
 
 The exact input, predicate, state file, and blind spot for every check are in
 [`docs/detection-pipeline.md`](docs/detection-pipeline.md).
 
 ## Configuration
 
-Edit `/etc/ids/ids.conf` after installation. Key variables:
+Edit `/etc/ids/ids_config.conf` after installation. Key variables:
 
 | Variable | Default | Description |
 |---|---|---|
@@ -141,26 +134,24 @@ Edit `/etc/ids/ids.conf` after installation. Key variables:
 | `CPU_THRESHOLD` | `80` | CPU % before alert |
 | `CHECK_INTERVAL` | `60` | Seconds between monitoring cycles |
 | `ALERT_TO_FILE` | `1` | Write JSON to alert log |
-| `ALERT_TO_SYSLOG` | `0` | Forward to syslog |
+| `AUTH_WINDOW` | `300` | Seconds of auth log the brute-force and failed-login checks read |
+| `SUDO_WINDOW` | `3600` | Seconds of auth log the sudo check reads |
+| `ALERT_TO_SYSLOG` | `1` | Forward to syslog as `auth.crit`, `auth.err`, `auth.warning` or `auth.notice` by severity |
 
-## Measured results
+## Results
 
-The repository measurement script reported 73606 bytes of implementation shell
-and Jinja source, 16 monitor check functions, and passing shell syntax checks.
-Those values come from `sh tools/measure.sh`.
-
-The disposable-container run used Debian GNU/Linux 12 with `dash`, installed
-`procps` and `net-tools`, and ran the checked-in monitor directly. Its warm
-pass exited with status 0 and wrote 13 alert records for the planted artefacts.
-The measured wall-clock delta for that pass was 257238750 nanoseconds. This is
-one container run, not a performance guarantee.
+From `sh tools/linux-run.sh` in `debian:12-slim` (Linux 6.5.11, aarch64), on
+2026-09-24. Details are in [docs/measurement.md](docs/measurement.md).
 
 | Command | Result |
 |---|---|
-| `sh tools/measure.sh` | 73606 implementation shell/Jinja bytes; 16 checks; syntax pass |
-| `sh bin/monitor.sh -h` | help displayed |
-| `sh bin/alert.sh -h` | help displayed |
-| `sh tools/container_run.sh` | warm pass exit 0; 13 JSON alerts; 257238750 ns wall delta |
+| `sh tools/measure.sh` | 75,576 implementation shell/Jinja bytes; 16 checks; syntax pass |
+| `sh bin/monitor.sh -h`, `sh bin/alert.sh -h` | exit 0 |
+| `sh bin/setup.sh -s`, then `sh bin/setup.sh` | exit 0; all three scripts and the config installed |
+| `sh tests/test.sh` | all 10 tests run, fresh install or not; 11 passed, 1 failed (no auth log in the container) |
+| `sh bin/baseline.sh -n`, then `-V` | baseline written; `-V` exit 0 |
+| `sh tools/container_run.sh` | warm pass exit 0; 13 JSON alerts for 9 planted artefacts; 0.31 s |
+| `sh tests/docker.sh` | 239 checks passed, 0 failed |
 
 ## Repository layout
 
@@ -171,27 +162,26 @@ roles/                  Ansible role tasks and Jinja templates
 playbooks/              Ansible deployment and maintenance playbooks
 inventory/              staging and production inventory examples
 splunk/                 Splunk inputs, field parsing, searches and dashboard
-tests/                  installation-oriented shell test script
+tests/                  host test script and the Docker regression suite
 examples/               Ansible deployment and maintenance examples
 docs/                   graphical overview, subsystem write-ups and measurements
-tools/                  measurement harnesses used by this documentation pass
+tools/                  measurement script and container harnesses
 ```
 
 ## Known limitations
 
-- The baseline generator and monitor use different paths and formats, so a
-  baseline generated by `bin/baseline.sh` is not the baseline input that
-  `bin/monitor.sh` reads.
-- Authentication thresholds operate on the last fixed number of log lines, not
-  timestamps. Port-scan detection is a snapshot of current `netstat` output,
-  not a historical connection window.
-- The Splunk files currently point at paths and schemas that do not match the
-  monitor's `alerts.json` records. Splunk was not run in this pass.
-- The Ansible graph references absent roles, task files, templates and
-  unsupported baseline options. No remote host was contacted.
+- The authentication windows only understand the traditional syslog stamp and
+  RFC 3339 stamps; lines in other formats are ignored. Port-scan detection is a
+  snapshot of current `netstat` output, not a historical connection window.
+- The Splunk files are checked statically; Splunk itself has not been run
+  against them.
+- The Ansible deployment was run against `localhost` in a container with the
+  cron service type. The systemd service type and remote hosts were not
+  exercised.
 - The monitor depends on host tools and permissions, including `/proc`,
   `netstat` or equivalent availability, readable authentication logs, and
-  access to the watched paths. The container harness installs only the tools it
+  access to the watched paths. The container harnesses install `procps` and
+  `net-tools` inside their container for that reason.
 
 ## Status
 

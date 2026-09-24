@@ -1,0 +1,17 @@
+IDS status report
+Host: {{ ansible_hostname }}
+Generated: {{ ansible_date_time.iso8601 }}
+Service type: {{ ids_service_type }}
+
+Directories:
+{% for item in dir_check.results %}
+  {{ item.item }}: {{ 'present' if item.stat.exists else 'MISSING' }}
+{% endfor %}
+
+Configuration syntax: {{ 'ok' if (config_syntax.rc | default(1)) == 0 else 'not checked or failed' }}
+Recent alerts: {{ recent_alerts.stdout | default('not checked') }}
+
+Health check:
+{% for line in health_check.stdout_lines | default([]) %}
+  {{ line }}
+{% endfor %}

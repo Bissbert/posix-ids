@@ -47,6 +47,12 @@ fi
 # Ensure log directory exists
 [ -d "$IDS_HOME" ] || mkdir -p "$IDS_HOME"
 
+# Time windows for the auth log checks, in seconds. Configurations written
+# before these settings existed fall back to the documented defaults.
+AUTH_WINDOW=${AUTH_WINDOW:-300}
+SUDO_WINDOW=${SUDO_WINDOW:-3600}
+AUTH_LOG_SCAN_LINES=${AUTH_LOG_SCAN_LINES:-50000}
+
 # State files
 STATE_DIR="$IDS_HOME/state"
 [ -d "$STATE_DIR" ] || mkdir -p "$STATE_DIR"
@@ -93,8 +99,22 @@ log_alert() {
     fi
 
     if [ "$ALERT_TO_SYSLOG" = "1" ] && command -v logger >/dev/null 2>&1; then
-        logger -t "ids" -p "security.$severity" "$category: $description"
+        # A failed syslog write must not stop the remaining checks.
+        logger -t "ids" -p "$(syslog_priority "$severity")" "$category: $description" 2>/dev/null ||
+            err "logger failed for $category alert"
     fi
+}
+
+# Map an IDS severity onto a syslog facility.level pair. syslog has no
+# "high" or "medium" level, so the IDS names cannot be passed through.
+syslog_priority() {
+    case "$1" in
+        critical) printf 'auth.crit' ;;
+        high) printf 'auth.err' ;;
+        medium) printf 'auth.warning' ;;
+        low) printf 'auth.notice' ;;
+        *) printf 'auth.info' ;;
+    esac
 }
 
 # Rotate logs if needed
@@ -123,29 +143,75 @@ check_port_scans() {
         netstat -tn 2>/dev/null | awk '/ESTABLISHED|SYN_RECV/ {print $5}' | \
             sed 's/:[^:]*$//' | sort | uniq -c | \
             while read -r count ip; do
-                [ "$count" -gt "$PORT_SCAN_THRESHOLD" ] && \
+                # An if keeps a below-threshold row from failing the pipeline under set -e.
+                if [ "$count" -gt "$PORT_SCAN_THRESHOLD" ]; then
                     log_alert "$SEV_HIGH" "network" "Possible port scan detected" "IP: $ip, Connections: $count"
+                fi
             done
     fi
 }
 
-check_brute_force() {
+# Print the auth log lines stamped within the last $1 seconds. Reads the
+# traditional syslog stamp ("Sep 24 09:42:17", local time, no year) and the
+# RFC 3339 stamp rsyslog writes with its high-precision template.
+auth_log_recent() {
+    window=$1
     auth_log=""
     for log in /var/log/auth.log /var/log/secure; do
         [ -f "$log" ] && auth_log="$log" && break
     done
+    [ -n "$auth_log" ] || return 0
 
-    if [ -n "$auth_log" ]; then
-        # Check last 5 minutes of logs
-        tail -1000 "$auth_log" 2>/dev/null | \
-            grep -E 'Failed password|authentication failure' | \
-            sed -n 's/.*from \([0-9.]*\).*/\1/p' | \
-            sort | uniq -c | \
-            while read -r count ip; do
-                [ "$count" -gt "$BRUTE_FORCE_THRESHOLD" ] && \
-                    log_alert "$SEV_CRITICAL" "authentication" "Brute force attack detected" "IP: $ip, Attempts: $count"
-            done
-    fi
+    tail -n "$AUTH_LOG_SCAN_LINES" "$auth_log" 2>/dev/null | awk \
+        -v window="$window" \
+        -v now_local="$(date '+%Y %m %d %H %M %S')" \
+        -v now_utc="$(date -u '+%Y %m %d %H %M %S')" '
+        # Days since 1970-01-01 in the proleptic Gregorian calendar.
+        function days(y, m, d) {
+            if (m <= 2) { y--; m += 12 }
+            return 365 * y + int(y / 4) - int(y / 100) + int(y / 400) + int((153 * (m - 3) + 2) / 5) + d - 719469
+        }
+        function stamp(y, mo, d, h, mi, s) {
+            return days(y + 0, mo + 0, d + 0) * 86400 + h * 3600 + mi * 60 + s
+        }
+        BEGIN {
+            split("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec", names, " ")
+            for (i = 1; i <= 12; i++) mon[names[i]] = i
+            split(now_local, a, " "); local_now = stamp(a[1], a[2], a[3], a[4], a[5], a[6]); year = a[1] + 0
+            split(now_utc, b, " "); utc_now = stamp(b[1], b[2], b[3], b[4], b[5], b[6])
+        }
+        ($1 in mon) && $3 ~ /^[0-9][0-9]:[0-9][0-9]:[0-9][0-9]$/ {
+            split($3, t, ":")
+            ts = stamp(year, mon[$1], $2, t[1], t[2], t[3])
+            # No year in the stamp: a date ahead of now belongs to last year.
+            if (ts > local_now + 86400) ts = stamp(year - 1, mon[$1], $2, t[1], t[2], t[3])
+            if (local_now - ts <= window) print
+            next
+        }
+        $1 ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]/ {
+            ts = stamp(substr($1, 1, 4), substr($1, 6, 2), substr($1, 9, 2), substr($1, 12, 2), substr($1, 15, 2), substr($1, 18, 2))
+            zone = substr($1, 20); sub(/^[.][0-9]+/, "", zone); gsub(":", "", zone)
+            now = local_now
+            if (zone == "Z") now = utc_now
+            else if (zone ~ /^[+-][0-9][0-9][0-9][0-9]$/) {
+                off = substr(zone, 2, 2) * 3600 + substr(zone, 4, 2) * 60
+                ts = (substr(zone, 1, 1) == "+") ? ts - off : ts + off
+                now = utc_now
+            }
+            if (now - ts <= window) print
+        }'
+}
+
+check_brute_force() {
+    auth_log_recent "$AUTH_WINDOW" | \
+        grep -E 'Failed password|authentication failure' | \
+        sed -n 's/.*from \([0-9.]*\).*/\1/p' | \
+        sort | uniq -c | \
+        while read -r count ip; do
+            if [ "$count" -gt "$BRUTE_FORCE_THRESHOLD" ]; then
+                log_alert "$SEV_CRITICAL" "authentication" "Brute force attack detected" "IP: $ip, Attempts: $count"
+            fi
+        done
 }
 
 check_suspicious_connections() {
@@ -168,7 +234,7 @@ check_suspicious_connections() {
 # File system monitoring
 check_file_integrity() {
     if [ ! -f "$BASELINE_FILE" ]; then
-        log_alert "$SEV_HIGH" "filesystem" "Baseline file missing" "Run generate_baseline.sh"
+        log_alert "$SEV_HIGH" "filesystem" "Baseline file missing" "Run ids_baseline -c $CONFIG"
         return
     fi
 
@@ -243,34 +309,19 @@ check_new_users() {
 }
 
 check_failed_logins() {
-    auth_log=""
-    for log in /var/log/auth.log /var/log/secure; do
-        [ -f "$log" ] && auth_log="$log" && break
-    done
+    # grep -c prints 0 itself when nothing matches; only its status is ignored.
+    recent_fails=$(auth_log_recent "$AUTH_WINDOW" | grep -c 'authentication failure' || true)
 
-    if [ -n "$auth_log" ]; then
-        recent_fails=$(tail -500 "$auth_log" 2>/dev/null | \
-            grep -c 'authentication failure' || printf "0")
-
-        if [ "$recent_fails" -gt "$MAX_FAILED_LOGINS" ]; then
-            log_alert "$SEV_HIGH" "authentication" "Excessive failed login attempts" "Count: $recent_fails"
-        fi
+    if [ "$recent_fails" -gt "$MAX_FAILED_LOGINS" ]; then
+        log_alert "$SEV_HIGH" "authentication" "Excessive failed login attempts" "Count: $recent_fails"
     fi
 }
 
 check_sudo_usage() {
-    auth_log=""
-    for log in /var/log/auth.log /var/log/secure; do
-        [ -f "$log" ] && auth_log="$log" && break
-    done
+    sudo_count=$(auth_log_recent "$SUDO_WINDOW" | grep -c 'sudo:' || true)
 
-    if [ -n "$auth_log" ]; then
-        sudo_count=$(tail -1000 "$auth_log" 2>/dev/null | \
-            grep -c 'sudo:' || printf "0")
-
-        if [ "$sudo_count" -gt "$SUDO_ANOMALY_THRESHOLD" ]; then
-            log_alert "$SEV_MEDIUM" "authentication" "Unusual sudo activity" "Count: $sudo_count"
-        fi
+    if [ "$sudo_count" -gt "$SUDO_ANOMALY_THRESHOLD" ]; then
+        log_alert "$SEV_MEDIUM" "authentication" "Unusual sudo activity" "Count: $sudo_count"
     fi
 }
 

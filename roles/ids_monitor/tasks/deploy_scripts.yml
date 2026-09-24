@@ -30,15 +30,6 @@
   notify: restart ids
   tags: [deploy]
 
-- name: Deploy library functions
-  ansible.builtin.template:
-    src: lib-functions.sh.j2
-    dest: "{{ ids_base_path }}/lib/functions.sh"
-    owner: "{{ ids_user }}"
-    group: "{{ ids_group }}"
-    mode: "0644"
-  tags: [deploy]
-
 - name: Create script symlinks for easy access
   ansible.builtin.file:
     src: "{{ ids_base_path }}/bin/{{ item }}"
