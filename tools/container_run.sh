@@ -46,8 +46,7 @@ section "preparing the checked-in monitor"
 mkdir -p /var/log/ids/state /var/www /usr/local/bin /etc/ssh
 printf 'Port 22\nPermitRootLogin no\n' > /etc/ssh/sshd_config
 # The checked-in configuration, unchanged. Syslog output stays on; the
-# container has no syslog daemon, so each logger call fails and the monitor
-# reports that on stderr and carries on.
+# container runs no syslog daemon, so logger discards the messages.
 cp /src/config/ids.conf /tmp/ids_config.conf
 
 # The monitor baseline comes from the checked-in generator.
@@ -147,7 +146,9 @@ ls -l /var/log/ids/ /var/log/ids/state/ 2>/dev/null | sed 's/^/  /'
 
 section "baseline.sh -V after the planted changes"
 set +e
-sh /src/bin/baseline.sh -c /tmp/ids_config.conf -V | sed 's/^/  /'
-echo "  exit status: $?"
+sh /src/bin/baseline.sh -c /tmp/ids_config.conf -V > /tmp/verify.out
+rc=$?
 set -e
+sed 's/^/  /' /tmp/verify.out
+echo "  exit status: $rc"
 INNER

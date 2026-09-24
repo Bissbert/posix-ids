@@ -20,6 +20,11 @@ done
 check "baseline skips a critical file that does not exist" \
     sh -c "! grep -q absent '$S/baseline.dat'"
 
+rc=0; sh "$BIN/baseline.sh" -c "$CONF" -V > "$S/verify0.out" 2>&1 || rc=$?
+check "baseline.sh -V exits 0 right after -n" [ "$rc" -eq 0 ]
+check "baseline.sh -V reports a never-present file as absent, not missing" \
+    grep -q "ABSENT  *$S/files/absent" "$S/verify0.out"
+
 run_monitor
 check "monitor accepts the generated baseline" no_alert "Baseline file missing"
 check "unchanged files raise no integrity alert" no_alert "Critical file modified"
@@ -32,6 +37,12 @@ check "the unchanged file raises none" no_alert "\"File: $S/files/b\""
 rc=0; sh "$BIN/baseline.sh" -c "$CONF" -V > "$S/verify.out" 2>&1 || rc=$?
 check "baseline.sh -V exits 1 when a file changed" [ "$rc" -eq 1 ]
 check "baseline.sh -V names the changed file" grep -q "CHANGED  *$S/files/a" "$S/verify.out"
+
+rm "$S/files/b"
+rc=0; sh "$BIN/baseline.sh" -c "$CONF" -V > "$S/verify2.out" 2>&1 || rc=$?
+check "baseline.sh -V exits 1 when a recorded file is gone" [ "$rc" -eq 1 ]
+check "baseline.sh -V names the removed file" grep -q "MISSING  *$S/files/b" "$S/verify2.out"
+echo two > "$S/files/b"
 
 before=$(sha256sum "$S/baseline.dat")
 rc=0; sh "$BIN/baseline.sh" -c "$CONF" -S > "$S/snap.out" 2>&1 || rc=$?

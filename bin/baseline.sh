@@ -83,7 +83,9 @@ if [ "$VERIFY" = "1" ]; then
     status=0
     for file in $CRITICAL_FILES; do
         expected=$(grep -F "  $file" "$BASELINE_FILE" | awk -v f="$file" '$2 == f {print $1}')
-        if [ ! -f "$file" ]; then
+        if [ ! -f "$file" ] && [ -z "$expected" ]; then
+            echo "ABSENT    $file"
+        elif [ ! -f "$file" ]; then
             echo "MISSING   $file"; status=1
         elif [ -z "$expected" ]; then
             echo "UNLISTED  $file"

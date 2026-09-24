@@ -67,7 +67,7 @@ grep -n '^BASELINE_FILE' /etc/ids/ids_config.conf
 sh bin/baseline.sh -c /etc/ids/ids_config.conf -n; echo "baseline.sh -n  exit=$?"
 printf '/var/log/ids/baseline.dat (monitor.sh reads): '
 [ -f /var/log/ids/baseline.dat ] && echo "present, $(wc -l < /var/log/ids/baseline.dat) entries" || echo absent
-sh bin/baseline.sh -c /etc/ids/ids_config.conf -V >/dev/null; echo "baseline.sh -V (unchanged)  exit=$?"
+sh bin/baseline.sh -c /etc/ids/ids_config.conf -V; echo "baseline.sh -V (unchanged)  exit=$?"
 
 section "syslog priority built from an IDS severity"
 sed -n '/^syslog_priority()/,/^}/p' bin/monitor.sh
